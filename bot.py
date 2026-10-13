@@ -1,6 +1,9 @@
 import logging
 import os
 import re
+import json
+import urllib.request
+import urllib.error
 
 from telegram import Update
 from telegram.error import TelegramError
@@ -8,6 +11,10 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 MAYNA_CHANNEL_ID = -1003071373878
 CHANNEL_INVITE = "https://t.me/+wyKej2q0oK0zYjI0"
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
+GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 # Channel post IDs mapped from the user's t.me/c/3071373878/<id> links.
 VIDEOS = {
@@ -268,6 +275,8 @@ async def handle_group_message(
         return
 
     text = message.text or message.caption or ""
+    if not text and message.photo:
+        text = "سؤال عن منتج مرفق بصورة"
     if not text:
         return
     if is_greeting(text):
@@ -278,6 +287,33 @@ async def handle_group_message(
 
     match = match_tutorial(text)
     if not match:
+        topic_key = await classify_with_gemini(text)
+        if topic_key:
+            # Reuse the same introductions and canonical channel-post mappings.
+            gemini_intros = {
+                "registration": "مرحبا بيك في Mayna. هذا فيديو شرح التسجيل وكيفاش تبدا في التسويق بالعمولة:",
+                "new_order_commission": "هذا شرح تسجيل طلبية جديدة وكيفية احتساب العمولة:",
+                "withdraw_commission": "هذا شرح طريقة سحب العمولة من منصة Mayna:",
+                "order_management_status": "هذا شرح تسجيل وتعديل وإلغاء الطلبية، وكيفاش تعرف حالتها حتى التوصيل:",
+                "delivery_tracking": "هذا شرح تتبع الطلبيات عبر Vitrans Express وDHD Express:",
+                "marketplace_posting": "هذا شرح طريقة النشر في Marketplace للمبتدئين:",
+                "basket_feature": "هذا شرح خاصية السلة في تطبيق Mayna:",
+                "google_lens_chatgpt_product_research": "هذا شرح البحث عن المنتجات والأسعار باستعمال Google Lens وChatGPT:",
+                "exchange_warranty_policy": "هذه سياسة الاستبدال والضمان المعتمدة في Mayna:",
+                "mayna_app_download_images_copy_text": "هذا شرح تطبيق Mayna، وكيفاش تحمّل صور المنتجات وتنسخ النصوص:",
+                "customer_service_numbers": "هذه أرقام مصالح الزبائن الخاصة بالمتاجر. تواصل مع المتجر الذي طلبت منه:",
+                "order_confirmation_times": "هذا شرح أوقات تأكيد الطلبات في Mayna:",
+                "delivery_prices_58_wilayas": "هذا شرح أسعار التوصيل للولايات الـ58:",
+                "delivery_companies": "هذا شرح شركات التوصيل التي تتعامل معها Mayna:",
+                "municipality_home_delivery": "في البلديات التي لا تتوفر فيها مكاتب توصيل، يكون التوصيل إلى باب الدار فقط:",
+                "product_color_size_notes": "إذا طلب الزبون لونًا أو قياسًا محددًا، اكتبه في خانة الملاحظة عند تسجيل الطلبية:",
+                "commission_payment_days": "هذا شرح أيام دفع العمولة في Mayna:",
+                "delivery_duration_58_wilayas": "هذا شرح مدة التوصيل للولايات الـ58:",
+            }
+            if topic_key in gemini_intros:
+                match = (topic_key, gemini_intros[topic_key])
+    if not match:
+        await escalate_to_admin(update, context, text)
         return
     tutorial_key, intro = match
     post_id = VIDEOS[tutorial_key]
