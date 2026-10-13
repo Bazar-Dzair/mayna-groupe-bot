@@ -1,29 +1,44 @@
+import logging
 import os
 import re
-import logging
 import unicodedata
 
 from telegram import Update
-from telegram.ext import (
-    Application,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mayna-assistant-bot")
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WELCOME_TEMPLATE = (
+    "مرحبًا {name}، بيك معانا في مجموعة استفسارات Mayna!\n\n"
+    "سعداء بانضمامك لينا. هذي المجموعة مخصّصة لمساعدة المسوّقين "
+    "والإجابة على استفساراتهم المتعلقة بالمنتجات والطلبات والخدمات.\n\n"
+    "تقدر تطرح سؤالك بكل أريحية، وإن شاء الله نعاونوك ونوجّهوك "
+    "للمعلومة الصحيحة.\n\n"
+    "نتمنّاو لك تجربة موفّقة مع Mayna."
+)
 
 GREETING_REPLY = (
-    "وعليكم السلام ورحمة الله وبركاته، "
-    "مرحبا بيكم خاوتي في مجموعة استفسارات Mayna. "
-    "تفضلو بطرح استفساراتكم، رانا هنا باش نعاونوكم."
+    "وعليكم السلام ورحمة الله وبركاته، مرحبا بيكم خاوتي في مجموعة "
+    "استفسارات Mayna. تفضلو بطرح استفساراتكم، رانا هنا باش نعاونوكم."
 )
+
+GREETING_PATTERNS = [
+    r"السلام عليكم",
+    r"سلام عليكم",
+    r"سلام عليك",
+    r"سلام",
+    r"مرحبا بكم",
+    r"مرحبا",
+    r"اهلا وسهلا",
+    r"اهلا",
+    r"اهلين",
+]
 
 
 def normalize_text(text: str) -> str:
@@ -37,22 +52,9 @@ def normalize_text(text: str) -> str:
 
 def is_greeting(text: str) -> bool:
     normalized = normalize_text(text)
-
-    greetings = [
-        r"السلام عليكم",
-        r"سلام عليكم",
-        r"سلام عليك",
-        r"سلام",
-        r"مرحبا بكم",
-        r"مرحبا",
-        r"اهلا وسهلا",
-        r"اهلا",
-        r"اهلين",
-    ]
-
     return any(
         re.search(r"(?<!\w)" + phrase + r"(?!\w)", normalized)
-        for phrase in greetings
+        for phrase in GREETING_PATTERNS
     )
 
 
@@ -64,17 +66,12 @@ async def handle_greeting(
     chat = update.effective_chat
     user = update.effective_user
 
-    if not message or not chat or not user:
+    if not message or not chat or not user or user.is_bot:
         return
-
-    if user.is_bot:
-        return
-
     if chat.type not in ("group", "supergroup"):
         return
 
     text = message.text or message.caption or ""
-
     if not text or not is_greeting(text):
         return
 
@@ -85,22 +82,57 @@ async def handle_greeting(
         logger.exception("Failed to reply to greeting")
 
 
+async def welcome_new_members(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+
+    if not message or not chat or chat.type not in ("group", "supergroup"):
+        return
+    if not message.new_chat_members:
+        return
+
+    for member in message.new_chat_members:
+        if member.is_bot:
+            continue
+
+        name = member.first_name or "عضونا الجديد"
+        safe_name = (
+            name.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        try:
+            await message.reply_text(WELCOME_TEMPLATE.format(name=safe_name))
+            logger.info("Welcomed new member in group %s", chat.id)
+        except Exception:
+            logger.exception("Failed to welcome new member")
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError(
-            "Missing TELEGRAM_BOT_TOKEN GitHub Actions secret"
+            "Missing TELEGRAM_BOT_TOKEN. Add it under GitHub "
+            "Settings > Secrets and variables > Actions."
         )
 
     app = Application.builder().token(BOT_TOKEN).build()
-
     app.add_handler(
         MessageHandler(
-            filters.TEXT | filters.CAPTION,
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            welcome_new_members,
+        )
+    )
+    app.add_handler(
+        MessageHandler(
+            (filters.TEXT | filters.CAPTION) & ~filters.COMMAND,
             handle_greeting,
         )
     )
 
-    logger.info("MaynaDzBot is starting...")
+    logger.info("Mayna assistant bot starting with greeting/welcome features.")
     app.run_polling(drop_pending_updates=False)
 
 
