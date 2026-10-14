@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -594,6 +595,34 @@ def build_application(token: str) -> Application:
     return app
 
 
+def _gemini_selftest() -> None:
+    """Startup probe (runs in a background thread, never blocks the bot): one tiny text request per model,
+    logged in the GitHub Actions output, to show whether the key/network work and how fast each model answers."""
+    if not GEMINI_API_KEY:
+        return
+    names = [product_search.MODEL] + [m for m in product_search.FALLBACK_MODELS if m != product_search.MODEL]
+    for name in names:
+        started = time.time()
+        request = urllib.request.Request(
+            f"{product_search.API_ROOT}{name}:generateContent",
+            data=json.dumps({
+                "contents": [{"parts": [{"text": "Reply with the single word: OK"}]}],
+                "generationConfig": {"temperature": 0, "maxOutputTokens": 64},
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                response.read()
+            result = "OK"
+        except urllib.error.HTTPError as exc:
+            result = f"HTTP {exc.code} {product_search._http_error_detail(exc)}"
+        except Exception as exc:  # network, timeout ...
+            result = f"{type(exc).__name__}"
+        logger.info("Gemini selftest model=%s result=%s seconds=%.1f", name, result, time.time() - started)
+
+
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
@@ -615,6 +644,8 @@ def main() -> None:
         os.getenv("GITHUB_SHA", "local")[:7], len(delivery.WILAYAS),
         "OK" if selftest.handled and selftest.wilayas == ["وهران"] else "FAILED",
     )
+
+    threading.Thread(target=_gemini_selftest, name="gemini-selftest", daemon=True).start()
 
     app = build_application(token)
 
