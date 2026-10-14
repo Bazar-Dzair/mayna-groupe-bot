@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import time
 import urllib.error
 import urllib.request
@@ -126,25 +125,6 @@ GREETING_REPLY = (
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
-
-def extract_dhd_tracking_number(text: str):
-    """Recognize DHD tracking IDs without pretending we can read DHD status."""
-    if not text:
-        return None
-    match = re.search(r"\b(DHDC[A-Z0-9]{10,})\b", text.upper())
-    return match.group(1) if match else None
-
-
-async def _answer_dhd_tracking(message, tracking_number: str) -> bool:
-    """Offer the official public tracking page when no authorized DHD API is configured."""
-    reply = (
-        "📦 تعرّفت على رقم تتبع DHD: " + tracking_number + "\n\n"
-        "ما نقدرش نجيب حالة الشحنة آليًا حاليًا لأن ما عندناش وصول مؤكد لواجهة تتبع آلية من DHD.\n"
-        "افتح الموقع الرسمي وأدخل الرقم في خانة التتبع ثم اضغط Suivre:\n"
-        "https://platform.dhd-dz.com/suivi/"
-    )
-    return await _safe_reply(message, reply)
 
 
 def is_greeting(text: str) -> bool:
@@ -485,13 +465,6 @@ async def handle_group_message(
 
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
-        return
-
-    # 0) DHD tracking IDs are handled before topic classification so the number is not
-    # mistaken for an ordinary question. Status lookup is intentionally not fabricated.
-    tracking_number = extract_dhd_tracking_number(text)
-    if tracking_number:
-        await _answer_dhd_tracking(message, tracking_number)
         return
 
     # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
