@@ -35,9 +35,8 @@ jobs:
       - name: Start Mayna bot
         env:
           env:
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-  GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
-  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python bot.py
-        
