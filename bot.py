@@ -112,6 +112,90 @@ CHANNEL_FOOTER = (
     "\n\nلمعلومات وشروحات أخرى، ادخل لقناة Mayna للتسويق:\n" + CHANNEL_LINK
 )
 
+
+# Prices transcribed from Mayna's supplied "أسعار التوصيل" poster.
+# Poster columns: البيت (home delivery), مكتب التوصيل (pickup office).
+DELIVERY_PRICES = {
+    "أدرار": (1100, 550), "الشلف": (650, 350), "الأغواط": (800, 350),
+    "أم البواقي": (650, 350), "باتنة": (650, 350), "بجاية": (600, 350),
+    "بسكرة": (700, 350), "بشار": (900, 500), "البليدة": (450, 450),
+    "البويرة": (600, 350), "تمنراست": (1500, 700), "تبسة": (700, 350),
+    "تلمسان": (650, 350), "تيارت": (700, 350), "تيزي وزو": (600, 350),
+    "الجزائر": (300, 300), "الجلفة": (800, 450), "جيجل": (650, 350),
+    "سطيف": (650, 350), "سعيدة": (700, 350), "سكيكدة": (650, 350),
+    "سيدي بلعباس": (650, 350), "عنابة": (650, 350), "قالمة": (700, 350),
+    "قسنطينة": (650, 350), "المدية": (600, 350), "مستغانم": (650, 350),
+    "المسيلة": (700, 350), "معسكر": (650, 350), "ورقلة": (900, 450),
+    "وهران": (600, 350), "البيض": (1000, 800), "إليزي": (1500, 1500),
+    "برج بوعريريج": (650, 350), "بومرداس": (400, 400), "الطارف": (700, 350),
+    "تندوف": (1300, 1300), "تيسمسيلت": (650, 350), "الوادي": (900, 500),
+    "خنشلة": (700, 350), "سوق أهراس": (750, 400), "تيبازة": (400, 300),
+    "ميلة": (700, 400), "عين الدفلى": (650, 350), "النعامة": (900, 450),
+    "عين تموشنت": (650, 400), "غرداية": (800, 450), "غليزان": (750, 400),
+    "تيميمون": (1200, 750), "برج باجي مختار": (9999, 9999),
+    "أولاد جلال": (850, 550), "بني عباس": (1000, 1000), "عين صالح": (1600, 900),
+    "عين قزام": (9999, 9999), "تقرت": (850, 450), "جانت": (9999, 9999),
+    "المغير": (950, 500), "المنيعة": (950, 550),
+}
+
+# Alternate spellings in Arabic/French/transliteration for all 58 wilayas.
+PRICE_WILAYA_ALIASES = {
+    "adrar": "أدرار", "chlef": "الشلف", "laghouat": "الأغواط",
+    "oum el bouaghi": "أم البواقي", "oum bouaghi": "أم البواقي",
+    "batna": "باتنة", "bejaia": "بجاية", "béjaïa": "بجاية", "bgayet": "بجاية",
+    "biskra": "بسكرة", "bechar": "بشار", "béchar": "بشار", "blida": "البليدة",
+    "bouira": "البويرة", "tamanrasset": "تمنراست", "tebessa": "تبسة",
+    "tébessa": "تبسة", "tlemcen": "تلمسان", "tiaret": "تيارت",
+    "tizi ouzou": "تيزي وزو", "alger": "الجزائر", "algérie": "الجزائر",
+    "djelfa": "الجلفة", "jijel": "جيجل", "setif": "سطيف", "sétif": "سطيف",
+    "saida": "سعيدة", "saïda": "سعيدة", "skikda": "سكيكدة",
+    "sidi bel abbes": "سيدي بلعباس", "annaba": "عنابة", "guelma": "قالمة",
+    "constantine": "قسنطينة", "medea": "المدية", "médéa": "المدية",
+    "mostaganem": "مستغانم", "msila": "المسيلة", "m'sila": "المسيلة",
+    "mascara": "معسكر", "ouargla": "ورقلة", "oran": "وهران",
+    "el bayadh": "البيض", "illizi": "إليزي", "bordj bou arreridj": "برج بوعريريج",
+    "bba": "برج بوعريريج", "boumerdes": "بومرداس", "boumerdès": "بومرداس",
+    "el tarf": "الطارف", "tindouf": "تندوف", "tissemsilt": "تيسمسيلت",
+    "el oued": "الوادي", "khenchela": "خنشلة", "souk ahras": "سوق أهراس",
+    "tipaza": "تيبازة", "mila": "ميلة", "ain defla": "عين الدفلى",
+    "naama": "النعامة", "naâma": "النعامة", "ain temouchent": "عين تموشنت",
+    "ghardaia": "غرداية", "relizane": "غليزان", "timimoun": "تيميمون",
+    "bordj badji mokhtar": "برج باجي مختار", "ouled djellal": "أولاد جلال",
+    "beni abbes": "بني عباس", "ain salah": "عين صالح", "in salah": "عين صالح",
+    "ain guezzam": "عين قزام", "in guezzam": "عين قزام", "touggourt": "تقرت",
+    "djanet": "جانت", "el mghair": "المغير", "el meniaa": "المنيعة",
+}
+
+def find_price_wilaya(text: str):
+    """Find a city mentioned in a delivery-price question."""
+    normalized = normalize(text)
+    # Longest aliases first, to avoid matching a short city inside a longer name.
+    for alias in sorted(PRICE_WILAYA_ALIASES, key=len, reverse=True):
+        if re.search(rf"(?<!\w){re.escape(normalize(alias))}(?!\w)", normalized):
+            return PRICE_WILAYA_ALIASES[alias]
+    # Arabic names as printed on the poster, including names absent from matcher.WILAYAS.
+    for name in sorted(DELIVERY_PRICES, key=len, reverse=True):
+        if re.search(rf"(?<!\w){re.escape(normalize(name))}(?!\w)", normalized):
+            return name
+    return None
+
+def format_delivery_price(wilaya: str) -> str:
+    home, office = DELIVERY_PRICES[wilaya]
+    if home == 9999 and office == 9999:
+        return (
+            f"أسعار التوصيل إلى {wilaya} حسب جدول Mayna الحالي:\\n"
+            "• التوصيل للبيت: 9999 دج\\n• مكتب التوصيل: 9999 دج\\n\\n"
+            "ملاحظة: السعر ظاهر هكذا في الصورة المرجعية؛ يُفضّل التأكد من الإدارة قبل تأكيد الطلب."
+            + CHANNEL_FOOTER
+        )
+    return (
+        f"أسعار التوصيل إلى {wilaya} حسب جدول Mayna:\\n"
+        f"• التوصيل للبيت: {home} دج\\n"
+        f"• مكتب التوصيل: {office} دج"
+        + CHANNEL_FOOTER
+    )
+
+
 GREETING_REPLY = (
     "وعليكم السلام ورحمة الله وبركاته. مرحبا بيك في مجموعة Mayna، "
     "كيفاش نقدروا نعاونك؟"
@@ -387,6 +471,19 @@ async def handle_group_message(
             topic = "exchange_warranty_policy" if gemini_topic == "exchange_warranty_policy_original" else gemini_topic
 
     if topic:
+        # For a city-specific delivery-price question, answer with that city's
+        # two prices only; do not dump the entire 58-wilaya poster.
+        if topic == "delivery_prices_58_wilayas":
+            price_wilaya = find_price_wilaya(text)
+            if price_wilaya:
+                await message.reply_text(format_delivery_price(price_wilaya), quote=True)
+                return
+            await message.reply_text(
+                "باش نعطيك السعر الصحيح، اكتب اسم الولاية. مثال: شحال التوصيل لوهران؟"
+                + CHANNEL_FOOTER,
+                quote=True,
+            )
+            return
         await _answer_topic(update, context, topic, result.wilaya or extract_wilaya(normalize(text)) or "")
         return
 
