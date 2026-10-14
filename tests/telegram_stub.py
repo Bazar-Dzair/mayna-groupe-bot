@@ -54,6 +54,8 @@ def install() -> bool:
     filters.StatusUpdate = _NS()
     filters.StatusUpdate.NEW_CHAT_MEMBERS = _F("NEW_CHAT_MEMBERS")
     filters.StatusUpdate.ALL = _F("STATUS_ALL")
+    filters.Document = _NS()
+    filters.Document.ALL = _F("DOCUMENT")
     filters.ChatType = _NS()
     filters.ChatType.GROUPS = _F("GROUPS")
     filters.ChatType.CHANNEL = _F("CHANNEL")
