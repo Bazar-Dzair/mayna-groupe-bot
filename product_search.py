@@ -141,15 +141,18 @@ def _text_hint(text: str) -> Optional[Product]:
 # ---------------------------------------------------------------------------
 
 _PAUSED_UNTIL = 0.0
-FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash").split(",") if m.strip()]
+FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash,gemini-2.5-flash").split(",") if m.strip()]
 RETRY_CODES = (500, 502, 503, 504)  # temporary Google-side errors: worth retrying
 MODEL_GONE_CODES = (400, 404)       # this model id is unusable for this key: try the next model
 ATTEMPTS_PER_MODEL = 3
 BACKOFF_SECONDS = (1.5, 4.0)
-DEADLINE_SECONDS = 75  # total time budget for one logical call (all retries and fallbacks)
+DEADLINE_SECONDS = 120  # total time budget for one logical call (all retries and fallbacks)
+REQUEST_TIMEOUT = 45
+IDENTIFY_TIMEOUT = 30   # photo/text identification: a healthy call answers in ~5-15 s
+SEARCH_TIMEOUT = 60     # Google Search grounding is legitimately slower
 
 
-def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 40) -> dict:
+def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = REQUEST_TIMEOUT) -> dict:
     """POST to generateContent, resilient to Google's temporary overload.
 
     - 500/502/503/504 and network errors: retried with a short backoff, then the next fallback model.
@@ -164,21 +167,24 @@ def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 
     models = [model or MODEL] + [m for m in FALLBACK_MODELS if m != (model or MODEL)]
     deadline = time.time() + DEADLINE_SECONDS
     last = "no attempt"
+    history = []  # one short line per failed model, so the final error shows the whole story
     for name in models:
         body = dict(payload)
-        if "2.5-flash" not in name and isinstance(body.get("generationConfig"), dict):
-            body["generationConfig"] = {k: v for k, v in body["generationConfig"].items() if k != "thinkingConfig"}
+        thinking = _thinking_for(name)
+        if thinking:
+            body["generationConfig"] = dict(body.get("generationConfig") or {}, thinkingConfig=thinking)
         data = json.dumps(body).encode("utf-8")
         for attempt in range(ATTEMPTS_PER_MODEL):
             remaining = deadline - time.time()
             if remaining < 3:
-                raise GeminiUnavailable(f"timeout after retries (last: {last})")
+                raise GeminiUnavailable(f"timeout after retries ({'; '.join(history + [last]) if history else last})")
             request = urllib.request.Request(
                 f"{API_ROOT}{name}:generateContent",
                 data=data,
                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
                 method="POST",
             )
+            started = time.time()
             try:
                 with urllib.request.urlopen(request, timeout=min(timeout, remaining)) as response:
                     result = json.loads(response.read().decode("utf-8"))
@@ -187,22 +193,37 @@ def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 
                 return result
             except urllib.error.HTTPError as exc:
                 last = f"http {exc.code} on {name}: {_http_error_detail(exc)}"
+                history.append(last)
                 if exc.code in (401, 403):
                     _PAUSED_UNTIL = time.time() + 600
                     raise GeminiUnavailable(last) from None
                 if exc.code == 429:
                     _PAUSED_UNTIL = time.time() + 60
                     raise GeminiUnavailable(last) from None
+                if exc.code == 400 and thinking:
+                    # This model may not accept our thinking setting: retry the same model without it.
+                    thinking = None
+                    body["generationConfig"] = {k: v for k, v in body["generationConfig"].items() if k != "thinkingConfig"}
+                    data = json.dumps(body).encode("utf-8")
+                    continue
                 if exc.code in MODEL_GONE_CODES:
                     break  # next model
                 if exc.code not in RETRY_CODES:
                     raise GeminiUnavailable(last) from None
             except Exception as exc:  # network, timeout, malformed JSON ...
                 last = f"{type(exc).__name__} on {name}"
+                if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+                    # URLError(reason=TimeoutError) = could not even connect; bare TimeoutError = connected, no answer.
+                    phase = "connect" if isinstance(getattr(exc, "reason", None), TimeoutError) else "read"
+                    last = f"{phase} timeout after {time.time() - started:.0f}s on {name}"
+                    history.append(last)
+                    logger.warning("Gemini call failed (%s): too slow, trying the next model", last)
+                    break  # a slow model will most likely be slow again: do not wait for it 3 times
+                history.append(last)
             logger.warning("Gemini call failed (%s), attempt %d/%d", last, attempt + 1, ATTEMPTS_PER_MODEL)
             if attempt < ATTEMPTS_PER_MODEL - 1:
                 time.sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
-    raise GeminiUnavailable(last)
+    raise GeminiUnavailable("; ".join(history[-4:]) or last)
 
 
 def _http_error_detail(exc) -> str:
@@ -214,13 +235,20 @@ def _http_error_detail(exc) -> str:
         return "no detail"
 
 
+def _thinking_for(model_name: str):
+    """Hidden 'thinking' makes answers slow and eats output tokens; extraction needs little of it."""
+    name = model_name.lower()
+    if "2.5-flash" in name and "lite" not in name:
+        return {"thinkingBudget": 0}
+    if name.startswith("gemini-3"):
+        return {"thinkingLevel": "low"}  # 'minimal' is not supported by 3.8 Flash
+    return None
+
+
 def _gen_config(max_tokens: int, **extra) -> dict:
-    """Generation settings. Gemini Flash models spend output tokens on hidden 'thinking' first, which can
-    leave an empty or cut-off answer, so the token limits are generous. 2.5-flash also gets thinking
-    switched off; newer models (3.x) have their own thinking levels and are left at their defaults."""
+    """Generation settings. Token limits are generous because hidden thinking also counts as output;
+    the thinking level itself is set per model in _post_gemini."""
     cfg = {"temperature": 0, "maxOutputTokens": max_tokens}
-    if "2.5-flash" in MODEL and "lite" not in MODEL:
-        cfg["thinkingConfig"] = {"thinkingBudget": 0}
     cfg.update(extra)
     return cfg
 
@@ -284,6 +312,7 @@ def identify(text: str, image: Optional[bytes], mime: str, api_key: str) -> Prod
             "generationConfig": _gen_config(4096, responseMimeType="application/json"),
         },
         api_key,
+        timeout=IDENTIFY_TIMEOUT,
     )
     obj = _parse_json(_answer_text(data))
     requested = obj.get("requested_specs")
@@ -385,6 +414,7 @@ def search_web(product: Product, api_key: str):
             "generationConfig": _gen_config(8192),
         },
         api_key,
+        timeout=SEARCH_TIMEOUT,
     )
     obj = _parse_json(_answer_text(data))
     specs = []
