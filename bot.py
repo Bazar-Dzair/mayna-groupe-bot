@@ -59,7 +59,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mayna-assistant")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
 
 INTRO_TEXTS = {
     "registration": "مرحبا بيك في Mayna. هذا شرح التسجيل وكيفاش تبدا:",
@@ -194,7 +194,7 @@ def classify_with_gemini(text: str, candidates=None):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": 40},
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 1024},
     }
     request = urllib.request.Request(
         url,

@@ -29,7 +29,7 @@ from typing import List, Optional
 logger = logging.getLogger("mayna-assistant.product")
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models/"
-MODEL = os.getenv("PRODUCT_GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
+MODEL = os.getenv("PRODUCT_GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-3.8-flash")).strip()
 CATALOG_FILE = os.getenv("PRODUCT_CATALOG_FILE", "").strip() or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "products_catalog.json"
 )
@@ -176,8 +176,9 @@ def _http_error_detail(exc) -> str:
 
 
 def _gen_config(max_tokens: int, **extra) -> dict:
-    """Generation settings. gemini-2.5-flash spends output tokens on hidden 'thinking' first, which can
-    leave an empty or cut-off answer; thinking is switched off for it (this extraction needs none)."""
+    """Generation settings. Gemini Flash models spend output tokens on hidden 'thinking' first, which can
+    leave an empty or cut-off answer, so the token limits are generous. 2.5-flash also gets thinking
+    switched off; newer models (3.x) have their own thinking levels and are left at their defaults."""
     cfg = {"temperature": 0, "maxOutputTokens": max_tokens}
     if "2.5-flash" in MODEL and "lite" not in MODEL:
         cfg["thinkingConfig"] = {"thinkingBudget": 0}
@@ -241,7 +242,7 @@ def identify(text: str, image: Optional[bytes], mime: str, api_key: str) -> Prod
     data = _post_gemini(
         {
             "contents": [{"parts": parts}],
-            "generationConfig": _gen_config(1024, responseMimeType="application/json"),
+            "generationConfig": _gen_config(4096, responseMimeType="application/json"),
         },
         api_key,
     )
@@ -342,7 +343,7 @@ def search_web(product: Product, api_key: str):
         {
             "contents": [{"parts": [{"text": prompt}]}],
             "tools": [{"google_search": {}}],
-            "generationConfig": _gen_config(2048),
+            "generationConfig": _gen_config(8192),
         },
         api_key,
     )
