@@ -45,4 +45,5 @@ jobs:
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PRODUCT_DEBUG: "1"  # shows the failure reason in the reply; delete this line once everything works
         run: python bot.py
