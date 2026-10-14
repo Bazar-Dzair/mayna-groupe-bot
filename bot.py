@@ -18,6 +18,7 @@ from telegram.ext import (
 
 import delivery
 import matcher
+import product_search
 from matcher import classify, extract_wilaya, normalize
 
 # All links below refer to posts in the Mayna private channel.
@@ -255,7 +256,7 @@ async def _notify_admin(context, message, chat, text, reason, candidates=()):
         body += "\nمواضيع محتملة: " + "، ".join(TOPIC_LABELS.get(c, c) for c in candidates)
     try:
         await context.bot.send_message(chat_id=admin_chat_id, text=body)
-        if getattr(message, "photo", None):
+        if _image_ref(message) is not None:
             await context.bot.copy_message(
                 chat_id=admin_chat_id,
                 from_chat_id=chat.id,
@@ -265,6 +266,76 @@ async def _notify_admin(context, message, chat, text, reason, candidates=()):
     except TelegramError:
         logger.exception("Could not notify admin about question")
         return False
+
+
+def _image_ref(message):
+    """(file_id, mime_type) of the image attached to the message, or None.
+
+    Covers compressed photos and images sent as a file (document with an image/* MIME type).
+    """
+    photos = getattr(message, "photo", None)
+    if photos:
+        best = photos[-1]  # Telegram lists sizes ascending; the last one is the largest
+        for candidate in reversed(photos):
+            size = getattr(candidate, "file_size", None)
+            if not size or size <= product_search.MAX_IMAGE_BYTES:
+                best = candidate
+                break
+        return getattr(best, "file_id", None), "image/jpeg"
+    document = getattr(message, "document", None)
+    mime = getattr(document, "mime_type", None) or ""
+    if document is not None and isinstance(mime, str) and mime.startswith("image/"):
+        return getattr(document, "file_id", None), mime
+    return None
+
+
+async def _download_image(context, ref):
+    """Download the image bytes, or None if Telegram refuses (never raises)."""
+    file_id = ref[0] if ref else None
+    if not file_id:
+        return None
+    try:
+        tg_file = await context.bot.get_file(file_id)
+        return bytes(await tg_file.download_as_bytearray())
+    except Exception:
+        logger.exception("Could not download the image from Telegram")
+        return None
+
+
+async def _answer_product(update, context, text, ref) -> bool:
+    """Product-spec flow. Returns True if the message was fully handled (reply or escalation sent),
+    False if it is not a product question and the normal flow must continue."""
+    message = update.effective_message
+    chat = update.effective_chat
+    image = await _download_image(context, ref) if ref else None
+    mime = ref[1] if ref else "image/jpeg"
+    outcome = await asyncio.to_thread(
+        product_search.search_product, text, image, mime, GEMINI_API_KEY, bool(ref)
+    )
+    logger.info(
+        "Product search: kind=%s reason=%s image=%s message_id=%s",
+        outcome.kind, outcome.reason or "-", bool(ref), message.message_id,
+    )
+    if outcome.kind == "not_product":
+        return False
+    if outcome.kind in ("answer", "ask_model"):
+        await _safe_reply(message, outcome.text)
+        return True
+    # escalate: tell the member only what is true
+    notified = await _notify_admin(context, message, chat, text, "منتج: " + outcome.reason)
+    if notified:
+        reply = (
+            "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
+            + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين")
+            + " باش يتأكدوا ويجاوبوك."
+        )
+    else:
+        reply = (
+            "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "
+            "ممكن تنادي المشرفين مباشرة هنا في المجموعة."
+        )
+    await _safe_reply(message, reply + CHANNEL_FOOTER)
+    return True
 
 
 async def _send_posts(context, message, chat, topic) -> bool:
@@ -372,7 +443,8 @@ async def handle_group_message(
         return
 
     text = message.text or message.caption or ""
-    has_photo = bool(getattr(message, "photo", None))
+    image_ref = _image_ref(message)
+    has_photo = image_ref is not None
     if not text and not has_photo:
         return
     if text.startswith("/"):
@@ -413,6 +485,15 @@ async def handle_group_message(
 
     result = classify(text)
     topic = result.topic if result.status == "match" else None
+
+    # 0.5) Product specs (photo + question, or a spec question in text). Tutorials/delivery answered above
+    # keep priority; a confident tutorial match is never taken over by this flow.
+    if topic is None and (has_photo or product_search.looks_like_spec_question(text)):
+        try:
+            if await _answer_product(update, context, text, image_ref):
+                return
+        except Exception:  # never let a bug here silence the bot
+            logger.exception("Product search crashed; falling back to the generic flow")
 
     # 1) Local search first. Gemini only when the local engine is not confident.
     if topic is None and GEMINI_API_KEY:
@@ -496,7 +577,7 @@ def build_application(token: str) -> Application:
             filters.ChatType.GROUPS
             & ~filters.StatusUpdate.ALL
             & ~filters.COMMAND
-            & (filters.TEXT | filters.CAPTION | filters.PHOTO),
+            & (filters.TEXT | filters.CAPTION | filters.PHOTO | filters.Document.ALL),
             handle_group_message,
         )
     )
