@@ -8,7 +8,7 @@ import urllib.request
 from collections import OrderedDict
 
 from telegram import Update
-from telegram.error import TelegramError
+from telegram.error import Conflict, TelegramError
 from telegram.ext import (
     Application,
     ContextTypes,
@@ -16,13 +16,14 @@ from telegram.ext import (
     filters,
 )
 
+import delivery
 import matcher
 from matcher import classify, extract_wilaya, normalize
 
 # All links below refer to posts in the Mayna private channel.
 # t.me/c/3071373878/<message_id> maps to chat ID -1003071373878.
 MAYNA_CHANNEL_ID = -1003071373878
-CHANNEL_LINK = "https://t.me/+wyKej2q0oK0zYjI0"
+CHANNEL_LINK = delivery.CHANNEL_LINK
 
 VIDEOS = {
     "registration": 334,
@@ -113,88 +114,7 @@ CHANNEL_FOOTER = (
 )
 
 
-# Prices transcribed from Mayna's supplied "أسعار التوصيل" poster.
-# Poster columns: البيت (home delivery), مكتب التوصيل (pickup office).
-DELIVERY_PRICES = {
-    "أدرار": (1100, 550), "الشلف": (650, 350), "الأغواط": (800, 350),
-    "أم البواقي": (650, 350), "باتنة": (650, 350), "بجاية": (600, 350),
-    "بسكرة": (700, 350), "بشار": (900, 500), "البليدة": (450, 450),
-    "البويرة": (600, 350), "تمنراست": (1500, 700), "تبسة": (700, 350),
-    "تلمسان": (650, 350), "تيارت": (700, 350), "تيزي وزو": (600, 350),
-    "الجزائر": (300, 300), "الجلفة": (800, 450), "جيجل": (650, 350),
-    "سطيف": (650, 350), "سعيدة": (700, 350), "سكيكدة": (650, 350),
-    "سيدي بلعباس": (650, 350), "عنابة": (650, 350), "قالمة": (700, 350),
-    "قسنطينة": (650, 350), "المدية": (600, 350), "مستغانم": (650, 350),
-    "المسيلة": (700, 350), "معسكر": (650, 350), "ورقلة": (900, 450),
-    "وهران": (600, 350), "البيض": (1000, 800), "إليزي": (1500, 1500),
-    "برج بوعريريج": (650, 350), "بومرداس": (400, 400), "الطارف": (700, 350),
-    "تندوف": (1300, 1300), "تيسمسيلت": (650, 350), "الوادي": (900, 500),
-    "خنشلة": (700, 350), "سوق أهراس": (750, 400), "تيبازة": (400, 300),
-    "ميلة": (700, 400), "عين الدفلى": (650, 350), "النعامة": (900, 450),
-    "عين تموشنت": (650, 400), "غرداية": (800, 450), "غليزان": (750, 400),
-    "تيميمون": (1200, 750), "برج باجي مختار": (9999, 9999),
-    "أولاد جلال": (850, 550), "بني عباس": (1000, 1000), "عين صالح": (1600, 900),
-    "عين قزام": (9999, 9999), "تقرت": (850, 450), "جانت": (9999, 9999),
-    "المغير": (950, 500), "المنيعة": (950, 550),
-}
-
-# Alternate spellings in Arabic/French/transliteration for all 58 wilayas.
-PRICE_WILAYA_ALIASES = {
-    "adrar": "أدرار", "chlef": "الشلف", "laghouat": "الأغواط",
-    "oum el bouaghi": "أم البواقي", "oum bouaghi": "أم البواقي",
-    "batna": "باتنة", "bejaia": "بجاية", "béjaïa": "بجاية", "bgayet": "بجاية",
-    "biskra": "بسكرة", "bechar": "بشار", "béchar": "بشار", "blida": "البليدة",
-    "bouira": "البويرة", "tamanrasset": "تمنراست", "tebessa": "تبسة",
-    "tébessa": "تبسة", "tlemcen": "تلمسان", "tiaret": "تيارت",
-    "tizi ouzou": "تيزي وزو", "alger": "الجزائر", "algérie": "الجزائر",
-    "djelfa": "الجلفة", "jijel": "جيجل", "setif": "سطيف", "sétif": "سطيف",
-    "saida": "سعيدة", "saïda": "سعيدة", "skikda": "سكيكدة",
-    "sidi bel abbes": "سيدي بلعباس", "annaba": "عنابة", "guelma": "قالمة",
-    "constantine": "قسنطينة", "medea": "المدية", "médéa": "المدية",
-    "mostaganem": "مستغانم", "msila": "المسيلة", "m'sila": "المسيلة",
-    "mascara": "معسكر", "ouargla": "ورقلة", "oran": "وهران",
-    "el bayadh": "البيض", "illizi": "إليزي", "bordj bou arreridj": "برج بوعريريج",
-    "bba": "برج بوعريريج", "boumerdes": "بومرداس", "boumerdès": "بومرداس",
-    "el tarf": "الطارف", "tindouf": "تندوف", "tissemsilt": "تيسمسيلت",
-    "el oued": "الوادي", "khenchela": "خنشلة", "souk ahras": "سوق أهراس",
-    "tipaza": "تيبازة", "mila": "ميلة", "ain defla": "عين الدفلى",
-    "naama": "النعامة", "naâma": "النعامة", "ain temouchent": "عين تموشنت",
-    "ghardaia": "غرداية", "relizane": "غليزان", "timimoun": "تيميمون",
-    "bordj badji mokhtar": "برج باجي مختار", "ouled djellal": "أولاد جلال",
-    "beni abbes": "بني عباس", "ain salah": "عين صالح", "in salah": "عين صالح",
-    "ain guezzam": "عين قزام", "in guezzam": "عين قزام", "touggourt": "تقرت",
-    "djanet": "جانت", "el mghair": "المغير", "el meniaa": "المنيعة",
-}
-
-def find_price_wilaya(text: str):
-    """Find a city mentioned in a delivery-price question."""
-    normalized = normalize(text)
-    # Longest aliases first, to avoid matching a short city inside a longer name.
-    for alias in sorted(PRICE_WILAYA_ALIASES, key=len, reverse=True):
-        if re.search(rf"(?<!\w){re.escape(normalize(alias))}(?!\w)", normalized):
-            return PRICE_WILAYA_ALIASES[alias]
-    # Arabic names as printed on the poster, including names absent from matcher.WILAYAS.
-    for name in sorted(DELIVERY_PRICES, key=len, reverse=True):
-        if re.search(rf"(?<!\w){re.escape(normalize(name))}(?!\w)", normalized):
-            return name
-    return None
-
-def format_delivery_price(wilaya: str) -> str:
-    home, office = DELIVERY_PRICES[wilaya]
-    if home == 9999 and office == 9999:
-        return (
-            f"أسعار التوصيل إلى {wilaya} حسب جدول Mayna الحالي:\\n"
-            "• التوصيل للبيت: 9999 دج\\n• مكتب التوصيل: 9999 دج\\n\\n"
-            "ملاحظة: السعر ظاهر هكذا في الصورة المرجعية؛ يُفضّل التأكد من الإدارة قبل تأكيد الطلب."
-            + CHANNEL_FOOTER
-        )
-    return (
-        f"أسعار التوصيل إلى {wilaya} حسب جدول Mayna:\\n"
-        f"• التوصيل للبيت: {home} دج\\n"
-        f"• مكتب التوصيل: {office} دج"
-        + CHANNEL_FOOTER
-    )
-
+# Delivery prices live in delivery_prices.json and are answered by delivery.py.
 
 GREETING_REPLY = (
     "وعليكم السلام ورحمة الله وبركاته. مرحبا بيك في مجموعة Mayna، "
@@ -370,6 +290,22 @@ async def _send_posts(context, message, chat, topic) -> bool:
     return sent_any
 
 
+async def _safe_reply(message, text: str) -> bool:
+    """Reply to the member. If Telegram refuses the reply (e.g. the original message was
+    deleted), retry once as a plain group message. Never raises; returns True if sent."""
+    try:
+        await message.reply_text(text, reply_to_message_id=message.message_id, disable_web_page_preview=True)
+        return True
+    except TelegramError:
+        logger.exception("Telegram refused the reply (message_id=%s); retrying without reply_to", message.message_id)
+    try:
+        await message.reply_text(text, disable_web_page_preview=True)
+        return True
+    except TelegramError:
+        logger.exception("Telegram refused the plain reply too (message_id=%s); answer NOT delivered", message.message_id)
+        return False
+
+
 async def _answer_topic(update, context, topic, wilaya=""):
     message = update.effective_message
     chat = update.effective_chat
@@ -459,6 +395,22 @@ async def handle_group_message(
         # A product photo without any question: nothing to answer, do not spam the group.
         return
 
+    # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
+    try:
+        price = delivery.answer(text)
+    except Exception:  # never let a bug here silence the bot
+        logger.exception("Delivery engine crashed; falling back to the generic flow")
+        price = None
+    if price is not None and price.handled:
+        sent = await _safe_reply(message, price.text)
+        logger.info(
+            "Delivery answer: kind=%s wilayas=%s show=%s fuzzy=%s sent=%s message_id=%s",
+            price.kind, ",".join(price.wilayas) or "-", price.show, price.fuzzy, sent, message.message_id,
+        )
+        return
+    if price is not None:
+        logger.info("Delivery engine skipped message_id=%s reason=%s", message.message_id, price.reason)
+
     result = classify(text)
     topic = result.topic if result.status == "match" else None
 
@@ -471,19 +423,6 @@ async def handle_group_message(
             topic = "exchange_warranty_policy" if gemini_topic == "exchange_warranty_policy_original" else gemini_topic
 
     if topic:
-        # For a city-specific delivery-price question, answer with that city's
-        # two prices only; do not dump the entire 58-wilaya poster.
-        if topic == "delivery_prices_58_wilayas":
-            price_wilaya = find_price_wilaya(text)
-            if price_wilaya:
-                await message.reply_text(format_delivery_price(price_wilaya), quote=True)
-                return
-            await message.reply_text(
-                "باش نعطيك السعر الصحيح، اكتب اسم الولاية. مثال: شحال التوصيل لوهران؟"
-                + CHANNEL_FOOTER,
-                quote=True,
-            )
-            return
         await _answer_topic(update, context, topic, result.wilaya or extract_wilaya(normalize(text)) or "")
         return
 
@@ -537,7 +476,33 @@ async def handle_channel_posts(
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Make hidden handler/polling errors visible in GitHub Actions logs."""
+    if isinstance(context.error, Conflict):
+        logger.error(
+            "Telegram Conflict: another instance of this bot (same token) is polling. "
+            "Stop the old run/host, otherwise updates are split between the two and questions get no answer."
+        )
+        return
     logger.error("Unhandled exception while processing update", exc_info=context.error)
+
+
+def build_application(token: str) -> Application:
+    """Create the Telegram application with all handlers (no network access here)."""
+    app = Application.builder().token(token).build()
+    app.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members)
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & ~filters.StatusUpdate.ALL
+            & ~filters.COMMAND
+            & (filters.TEXT | filters.CAPTION | filters.PHOTO),
+            handle_group_message,
+        )
+    )
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_posts))
+    app.add_error_handler(handle_error)
+    return app
 
 
 def main() -> None:
@@ -555,21 +520,14 @@ def main() -> None:
         "set" if os.getenv("GROUP_CHAT_ID", "").strip() else "missing",
     )
 
-    app = Application.builder().token(token).build()
-    app.add_handler(
-        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members)
+    selftest = delivery.answer("شحال التوصيل لوهران؟")
+    logger.info(
+        "Build: sha=%s delivery_wilayas=%d delivery_selftest=%s",
+        os.getenv("GITHUB_SHA", "local")[:7], len(delivery.WILAYAS),
+        "OK" if selftest.handled and selftest.wilayas == ["وهران"] else "FAILED",
     )
-    app.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS
-            & ~filters.StatusUpdate.ALL
-            & ~filters.COMMAND
-            & (filters.TEXT | filters.CAPTION | filters.PHOTO),
-            handle_group_message,
-        )
-    )
-    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_posts))
-    app.add_error_handler(handle_error)
+
+    app = build_application(token)
 
     logger.info("Mayna assistant bot starting.")
     app.run_polling(

@@ -1,0 +1,599 @@
+{
+ "_note": "Source: Mayna delivery price table (poster). home=التوصيل للبيت, office=مكتب التوصيل. 9999 = price must be confirmed by admin (never shown as a real price).",
+ "wilayas": [
+  {
+   "number": 1,
+   "name": "أدرار",
+   "aliases": [
+    "adrar",
+    "ادرار"
+   ],
+   "home": 1100,
+   "office": 550
+  },
+  {
+   "number": 2,
+   "name": "الشلف",
+   "aliases": [
+    "chlef",
+    "asnam",
+    "الأصنام"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 3,
+   "name": "الأغواط",
+   "aliases": [
+    "laghouat",
+    "aghouat",
+    "لغواط"
+   ],
+   "home": 800,
+   "office": 350
+  },
+  {
+   "number": 4,
+   "name": "أم البواقي",
+   "aliases": [
+    "oum el bouaghi",
+    "oum bouaghi",
+    "oeb",
+    "أم بواقي"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 5,
+   "name": "باتنة",
+   "aliases": [
+    "batna"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 6,
+   "name": "بجاية",
+   "aliases": [
+    "bejaia",
+    "béjaïa",
+    "bgayet",
+    "bougie"
+   ],
+   "home": 600,
+   "office": 350
+  },
+  {
+   "number": 7,
+   "name": "بسكرة",
+   "aliases": [
+    "biskra"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 8,
+   "name": "بشار",
+   "aliases": [
+    "bechar",
+    "béchar"
+   ],
+   "home": 900,
+   "office": 500
+  },
+  {
+   "number": 9,
+   "name": "البليدة",
+   "aliases": [
+    "blida"
+   ],
+   "home": 450,
+   "office": 450
+  },
+  {
+   "number": 10,
+   "name": "البويرة",
+   "aliases": [
+    "bouira"
+   ],
+   "home": 600,
+   "office": 350
+  },
+  {
+   "number": 11,
+   "name": "تمنراست",
+   "aliases": [
+    "tamanrasset",
+    "tamanghasset",
+    "تامنراست"
+   ],
+   "home": 1500,
+   "office": 700
+  },
+  {
+   "number": 12,
+   "name": "تبسة",
+   "aliases": [
+    "tebessa",
+    "tébessa",
+    "tbessa"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 13,
+   "name": "تلمسان",
+   "aliases": [
+    "tlemcen",
+    "tlemssen"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 14,
+   "name": "تيارت",
+   "aliases": [
+    "tiaret"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 15,
+   "name": "تيزي وزو",
+   "aliases": [
+    "tizi ouzou",
+    "tizi-ouzou",
+    "tizi",
+    "تيزي أوزو",
+    "تيزي اوزو",
+    "تيزيوزو"
+   ],
+   "home": 600,
+   "office": 350
+  },
+  {
+   "number": 16,
+   "name": "الجزائر",
+   "aliases": [
+    "الجزائر العاصمة",
+    "العاصمة",
+    "alger",
+    "algiers",
+    "alger centre",
+    "alger-centre",
+    "الجزائر الوسطى"
+   ],
+   "home": 300,
+   "office": 300
+  },
+  {
+   "number": 17,
+   "name": "الجلفة",
+   "aliases": [
+    "djelfa"
+   ],
+   "home": 800,
+   "office": 450
+  },
+  {
+   "number": 18,
+   "name": "جيجل",
+   "aliases": [
+    "jijel"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 19,
+   "name": "سطيف",
+   "aliases": [
+    "setif",
+    "sétif",
+    "stif"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 20,
+   "name": "سعيدة",
+   "aliases": [
+    "saida",
+    "saïda"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 21,
+   "name": "سكيكدة",
+   "aliases": [
+    "skikda"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 22,
+   "name": "سيدي بلعباس",
+   "aliases": [
+    "sidi bel abbes",
+    "sidi bel abbès",
+    "sba",
+    "سيدي بل عباس",
+    "sidi belabbes"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 23,
+   "name": "عنابة",
+   "aliases": [
+    "annaba"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 24,
+   "name": "قالمة",
+   "aliases": [
+    "guelma"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 25,
+   "name": "قسنطينة",
+   "aliases": [
+    "constantine"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 26,
+   "name": "المدية",
+   "aliases": [
+    "medea",
+    "médéa"
+   ],
+   "home": 600,
+   "office": 350
+  },
+  {
+   "number": 27,
+   "name": "مستغانم",
+   "aliases": [
+    "mostaganem",
+    "mosta"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 28,
+   "name": "المسيلة",
+   "aliases": [
+    "msila",
+    "m'sila",
+    "m sila"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 29,
+   "name": "معسكر",
+   "aliases": [
+    "mascara"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 30,
+   "name": "ورقلة",
+   "aliases": [
+    "ouargla",
+    "wargla"
+   ],
+   "home": 900,
+   "office": 450
+  },
+  {
+   "number": 31,
+   "name": "وهران",
+   "aliases": [
+    "oran",
+    "wahran",
+    "ouahran"
+   ],
+   "home": 600,
+   "office": 350
+  },
+  {
+   "number": 32,
+   "name": "البيض",
+   "aliases": [
+    "el bayadh",
+    "elbayadh"
+   ],
+   "home": 1000,
+   "office": 800
+  },
+  {
+   "number": 33,
+   "name": "إليزي",
+   "aliases": [
+    "illizi",
+    "اليزي"
+   ],
+   "home": 1500,
+   "office": 1500
+  },
+  {
+   "number": 34,
+   "name": "برج بوعريريج",
+   "aliases": [
+    "bordj bou arreridj",
+    "bba",
+    "برج بو عريريج"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 35,
+   "name": "بومرداس",
+   "aliases": [
+    "boumerdes",
+    "boumerdès"
+   ],
+   "home": 400,
+   "office": 400
+  },
+  {
+   "number": 36,
+   "name": "الطارف",
+   "aliases": [
+    "el tarf",
+    "eltarf"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 37,
+   "name": "تندوف",
+   "aliases": [
+    "tindouf"
+   ],
+   "home": 1300,
+   "office": 1300
+  },
+  {
+   "number": 38,
+   "name": "تيسمسيلت",
+   "aliases": [
+    "tissemsilt"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 39,
+   "name": "الوادي",
+   "aliases": [
+    "el oued",
+    "eloued"
+   ],
+   "home": 900,
+   "office": 500
+  },
+  {
+   "number": 40,
+   "name": "خنشلة",
+   "aliases": [
+    "khenchela",
+    "khenchla"
+   ],
+   "home": 700,
+   "office": 350
+  },
+  {
+   "number": 41,
+   "name": "سوق أهراس",
+   "aliases": [
+    "souk ahras",
+    "soukahras"
+   ],
+   "home": 750,
+   "office": 400
+  },
+  {
+   "number": 42,
+   "name": "تيبازة",
+   "aliases": [
+    "tipaza",
+    "tipasa"
+   ],
+   "home": 400,
+   "office": 300
+  },
+  {
+   "number": 43,
+   "name": "ميلة",
+   "aliases": [
+    "mila"
+   ],
+   "home": 700,
+   "office": 400
+  },
+  {
+   "number": 44,
+   "name": "عين الدفلى",
+   "aliases": [
+    "ain defla",
+    "aïn defla"
+   ],
+   "home": 650,
+   "office": 350
+  },
+  {
+   "number": 45,
+   "name": "النعامة",
+   "aliases": [
+    "naama",
+    "naâma"
+   ],
+   "home": 900,
+   "office": 450
+  },
+  {
+   "number": 46,
+   "name": "عين تموشنت",
+   "aliases": [
+    "ain temouchent",
+    "aïn témouchent",
+    "عين تيموشنت",
+    "ain timouchent"
+   ],
+   "home": 650,
+   "office": 400
+  },
+  {
+   "number": 47,
+   "name": "غرداية",
+   "aliases": [
+    "ghardaia",
+    "ghardaïa",
+    "gardaia"
+   ],
+   "home": 800,
+   "office": 450
+  },
+  {
+   "number": 48,
+   "name": "غليزان",
+   "aliases": [
+    "relizane",
+    "ghilizane"
+   ],
+   "home": 750,
+   "office": 400
+  },
+  {
+   "number": 49,
+   "name": "تيميمون",
+   "aliases": [
+    "timimoun"
+   ],
+   "home": 1200,
+   "office": 750
+  },
+  {
+   "number": 50,
+   "name": "برج باجي مختار",
+   "aliases": [
+    "bordj badji mokhtar",
+    "bbm"
+   ],
+   "home": 9999,
+   "office": 9999
+  },
+  {
+   "number": 51,
+   "name": "أولاد جلال",
+   "aliases": [
+    "ouled djellal"
+   ],
+   "home": 850,
+   "office": 550
+  },
+  {
+   "number": 52,
+   "name": "بني عباس",
+   "aliases": [
+    "beni abbes",
+    "béni abbès"
+   ],
+   "home": 1000,
+   "office": 1000
+  },
+  {
+   "number": 53,
+   "name": "عين صالح",
+   "aliases": [
+    "in salah",
+    "ain salah",
+    "ain-salah"
+   ],
+   "home": 1600,
+   "office": 900
+  },
+  {
+   "number": 54,
+   "name": "عين قزام",
+   "aliases": [
+    "in guezzam",
+    "ain guezzam"
+   ],
+   "home": 9999,
+   "office": 9999
+  },
+  {
+   "number": 55,
+   "name": "تقرت",
+   "aliases": [
+    "توقرت",
+    "touggourt",
+    "tougourt"
+   ],
+   "home": 850,
+   "office": 450
+  },
+  {
+   "number": 56,
+   "name": "جانت",
+   "aliases": [
+    "djanet"
+   ],
+   "home": 9999,
+   "office": 9999
+  },
+  {
+   "number": 57,
+   "name": "المغير",
+   "aliases": [
+    "el meghaier",
+    "el mghair",
+    "el meghair"
+   ],
+   "home": 950,
+   "office": 500
+  },
+  {
+   "number": 58,
+   "name": "المنيعة",
+   "aliases": [
+    "el meniaa",
+    "el menia",
+    "el golea",
+    "القليعة"
+   ],
+   "home": 950,
+   "office": 550
+  }
+ ]
+}
