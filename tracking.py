@@ -117,6 +117,44 @@ def _fetch_raw(number: str) -> str:
     return _open(urllib.request.Request(url, headers=headers))[2]
 
 
+
+def _fetch_with_browser(number: str) -> str:
+    """Fallback: open the page in headless Chromium, type the number, return JSON seen on the wire or page text.
+    Needs `pip install playwright` + `playwright install --with-deps chromium`. Raises if unavailable."""
+    from playwright.sync_api import sync_playwright  # imported lazily: optional dependency
+
+    captured = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent=_UA, locale="fr-FR")
+
+            def on_response(resp):
+                try:
+                    if "json" in (resp.headers.get("content-type") or "") and number.lower() in resp.text().lower():
+                        captured.append(resp.text())
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+            page.goto(TRACK_PAGE, wait_until="networkidle", timeout=30000)
+            box = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio])").first
+            box.fill(number, timeout=10000)
+            button = page.locator(
+                "button:visible, input[type=submit]:visible"
+            ).filter(has_text=re.compile(r"suiv|track|rechercher|search|بحث|تتبع|ok", re.I))
+            if button.count():
+                button.first.click()
+            else:
+                box.press("Enter")
+            page.wait_for_load_state("networkidle", timeout=20000)
+            page.wait_for_timeout(2500)
+            if captured:
+                return captured[-1]
+            return page.inner_text("body")
+        finally:
+            browser.close()
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -179,16 +217,34 @@ def parse_response(number: str, body: str) -> TrackingResult:
 
 
 def lookup(number: str) -> TrackingResult:
-    """Blocking call (run it with asyncio.to_thread). Never raises."""
+    """Blocking call (run it with asyncio.to_thread). Never raises.
+    1) plain HTTP request; 2) if that gives no readable status, a real headless browser."""
+    result = TrackingResult(number=number, error="unreachable")
     try:
         body = _fetch_raw(number)
+        result = parse_response(number, body)
+        if not result.ok:
+            logger.warning("DHD tracking plain request unreadable (%s). Body start: %r",
+                           result.error, (body or "")[:300])
     except urllib.error.HTTPError as exc:
-        logger.warning("DHD tracking HTTP %s for %s", exc.code, number)
-        return TrackingResult(number=number, error="not_found" if exc.code == 404 else "unreachable")
+        logger.warning("DHD tracking plain request HTTP %s for %s", exc.code, number)
+        result = TrackingResult(number=number, error="not_found" if exc.code == 404 else "unreachable")
     except Exception as exc:
-        logger.warning("DHD tracking unreachable: %s", type(exc).__name__)
-        return TrackingResult(number=number, error="unreachable")
-    return parse_response(number, body)
+        logger.warning("DHD tracking plain request failed: %s", type(exc).__name__)
+    if result.ok or result.error == "not_found" and not os.getenv("DHD_FORCE_BROWSER"):
+        return result
+    try:
+        body = _fetch_with_browser(number)
+        browsed = parse_response(number, body)
+        if not browsed.ok:
+            logger.warning("DHD tracking browser result unreadable (%s). Text start: %r",
+                           browsed.error, (body or "")[:500])
+        return browsed if (browsed.ok or browsed.error == "not_found") else result
+    except ImportError:
+        logger.warning("Playwright not installed: browser fallback skipped")
+    except Exception as exc:
+        logger.warning("DHD tracking browser fallback failed: %s: %s", type(exc).__name__, str(exc)[:200])
+    return result
 
 
 def build_reply(results: List[TrackingResult]) -> str:
