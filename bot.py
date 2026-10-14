@@ -130,7 +130,31 @@ def match_tutorial(text: str):
         ),
         (
             "delivery_companies",
-            ("شركات التوصيل", "شركة التوصيل", "اسماء شركات التوصيل", "مع من تتعامل ماينا في التوصيل", "transporteur", "societe de livraison", "société de livraison"),
+            (
+                # Direct questions about the delivery providers used by Mayna.
+                "شركات التوصيل", "شركة التوصيل", "شركات التوصيل لي نتعاملو معاها",
+                "شركات التوصيل التي نتعامل معها", "مع من تتعامل ماينا في التوصيل",
+                "مع من تتعامل mayna", "واش من شركة توصيل", "واش هي شركات التوصيل",
+                "ما هي شركات التوصيل", "اسماء شركات التوصيل", "أسماء شركات التوصيل",
+                "اسم شركة التوصيل", "اعطيني شركات التوصيل", "ابعثلي شركات التوصيل",
+                "ابعث شركات التوصيل", "شكون شركات التوصيل", "شكون اللي يوصل الطلبات",
+                "شكون يدي الكوموند", "مع من تتعاملو", "الشركات لي تخدمو معاهم",
+                "شركات الليفريزون", "شركة الليفريزون", "شركات ليڤريزون",
+                "شركات التوصيل المعتمدة", "شركات التوصيل المتعامل معها",
+                "الناقلين لي تتعامل معاهم", "transporteur", "transporteurs",
+                "societe de livraison", "société de livraison", "societes de livraison",
+                "sociétés de livraison", "entreprises de livraison", "compagnie de livraison",
+                "quelles sociétés de livraison", "quelles societes de livraison",
+                "avec quelles sociétés", "avec quels transporteurs", "les transporteurs de mayna",
+                "les sociétés avec lesquelles mayna travaille", "partenaires de livraison",
+                "livreurs partenaires", "quelle société livre", "quelle entreprise livre",
+                # Provider names mentioned directly should retrieve the provider list.
+                "noest", "noest express", "dhd express", "48heures", "48 heures express",
+                "48 heures", "yalidine", "yalidine express", "يا ليدين", "ياليدين",
+                "نوست", "نوست اكسبراس", "دي اش دي", "دي اتش دي", "48 اور", "48 ساعة اكسبراس",
+                "شركات توصيل ماينا", "شركة توصيل ماينا", "شركات التوصيل في ماينا",
+                "شركات التوصيل تاع ماينا", "شركات التوصيل تاع mayna",
+            ),
             INTRO_TEXTS["delivery_companies"],
         ),
         (
