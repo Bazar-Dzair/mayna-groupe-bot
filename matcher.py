@@ -274,7 +274,7 @@ _GREET_WORDS = (
     "سلام", "السلام", "عليكم", "مرحبا", "اهلا", "هلا", "صحا", "صباح", "مساء", "الخير", "النور",
     "salam", "slm", "salut", "bonjour", "bonsoir", "coucou", "hello", "hi", "hey", "assalamu", "alaykum",
     "alaikum", "wa3alaykoum", "ورحمه", "الله", "وبركاته", "صحه", "صحتك", "كيراك", "لاباس", "cv", "ça", "ca", "va",
-    "tout", "le", "monde", "للجميع", "جميعا", "اخواني", "خاوتي", "شباب", "الجماعه", "everyone", "كلكم", "بيكم",
+    "عليك", "عليكي", "عليكما", "يا", "اخي", "خويا", "اخوي", "اختي", "خيي", "سيدي", "استاذ", "اهلين", "حياك", "حياكم", "مرحبتين", "تحيه", "طيبه", "نهارك", "نهاركم", "سعيد", "slt", "alaykoum", "alykoum", "3alaykoum", "alaykom", "salem", "salamo", "salamou", "cc", "khoya", "frere", "tout", "le", "monde", "للجميع", "جميعا", "اخواني", "خاوتي", "شباب", "الجماعه", "everyone", "كلكم", "بيكم",
 )
 
 
@@ -286,7 +286,7 @@ def is_greeting(text: str) -> bool:
     words = norm.split()
     if len(words) > 6:
         return False
-    return all(w in _GREET_WORDS for w in words)
+    return all(w in _GREET_WORDS or (w.startswith('و') and w[1:] in _GREET_WORDS) for w in words)
 
 
 @dataclass
