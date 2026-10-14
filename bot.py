@@ -11,6 +11,7 @@ from telegram import Update
 from telegram.error import Conflict, TelegramError
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     ContextTypes,
     MessageHandler,
     filters,
@@ -18,6 +19,7 @@ from telegram.ext import (
 
 import delivery
 import matcher
+import moderation
 import product_search
 from matcher import classify, extract_wilaya, normalize
 
@@ -327,12 +329,12 @@ async def _answer_product(update, context, text, ref) -> bool:
         reply = (
             "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
             + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين")
-            + " باش يتأكدوا ويجاوبوك."
+            + f" باش يتأكدوا ويجاوبوك، أو تواصل مع المسؤول {moderation.ADMIN_MENTION}."
         )
     else:
         reply = (
             "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "
-            "ممكن تنادي المشرفين مباشرة هنا في المجموعة."
+            f"تواصل مع المسؤول {moderation.ADMIN_MENTION}."
         )
     await _safe_reply(message, reply + CHANNEL_FOOTER)
     return True
@@ -442,6 +444,12 @@ async def handle_group_message(
         logger.info("Ignoring chat_id=%s (GROUP_CHAT_ID=%s, RESTRICT_TO_GROUP=1)", chat.id, group_id)
         return
 
+    # The bot never talks to (or answers) the admin, and stays out of conversations the admin is handling.
+    if await moderation.is_admin(context, chat, message):
+        return
+    if await moderation.reply_is_to_admin(context, chat, message):
+        return
+
     text = message.text or message.caption or ""
     image_ref = _image_ref(message)
     has_photo = image_ref is not None
@@ -532,15 +540,101 @@ async def handle_group_message(
     )
     if notified:
         await message.reply_text(
-            "ما لقيتش الشرح المناسب لسؤالك حاليا. وصلنا السؤال للمشرفين باش يتابعوه."
+            "ما فهمتش سؤالك أو ما لقيتش الشرح المناسب. وصلنا السؤال للمشرفين باش يتابعوه، "
+            f"وتقدر تتواصل مع المسؤول {moderation.ADMIN_MENTION} مباشرة."
             + CHANNEL_FOOTER
         )
     else:
         await message.reply_text(
             "ما لقيتش الشرح المناسب لسؤالك، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "
-            "ممكن تنادي المشرفين مباشرة هنا في المجموعة."
+            f"تواصل مع المسؤول {moderation.ADMIN_MENTION}."
             + CHANNEL_FOOTER
         )
+
+
+_WARNED_AT = {}          # (chat_id, user_id) -> time of the last warning
+_BACKGROUND_TASKS = set()  # keeps references so delayed deletions are not garbage-collected
+_NO_DELETE_NOTIFIED_AT = {}
+
+
+async def _delete_later(bot_message, seconds):
+    await asyncio.sleep(seconds)
+    try:
+        await bot_message.delete()
+    except TelegramError:
+        pass
+
+
+async def handle_moderation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete links, photos and videos posted by members. Admins and bots are exempt."""
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message or not chat or chat.type not in ("group", "supergroup"):
+        return
+    if getattr(message, "new_chat_members", None):
+        return
+    if message.from_user and message.from_user.is_bot:
+        return
+    if getattr(message, "via_bot", None):
+        return
+
+    restrict = os.getenv("RESTRICT_TO_GROUP", "").strip() == "1"
+    group_id = _env_chat_id("GROUP_CHAT_ID")
+    if restrict and group_id is not None and chat.id != group_id:
+        return
+
+    if moderation.has_link(message):
+        warning = moderation.LINK_WARNING
+    elif moderation.blocked_media(message):
+        warning = moderation.MEDIA_WARNING
+    else:
+        return
+
+    if await moderation.is_admin(context, chat, message):
+        return
+
+    user = message.from_user
+    try:
+        await message.delete()
+    except TelegramError:
+        logger.exception("Could not delete a forbidden message (does the bot have the 'Delete messages' right?)")
+        admin_chat_id = _env_chat_id("ADMIN_CHAT_ID")
+        now = time.time()
+        if admin_chat_id is not None and now - _NO_DELETE_NOTIFIED_AT.get(chat.id, 0) > 3600:
+            _NO_DELETE_NOTIFIED_AT[chat.id] = now
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text="⚠️ ما قدرتش نحذف رسالة ممنوعة في المجموعة. تأكد أن البوت مشرف وعنده صلاحية حذف الرسائل.",
+                )
+            except TelegramError:
+                pass
+        raise ApplicationHandlerStop
+
+    logger.info(
+        "Deleted forbidden message chat_id=%s message_id=%s user_id=%s reason=%s",
+        chat.id, message.message_id, getattr(user, "id", "?"), "link" if warning == moderation.LINK_WARNING else "media",
+    )
+    key = (chat.id, getattr(user, "id", None))
+    now = time.time()
+    if now - _WARNED_AT.get(key, 0) >= moderation.WARNING_THROTTLE_SECONDS:
+        _WARNED_AT[key] = now
+        name = (getattr(user, "first_name", "") or "").strip()
+        kwargs = {}
+        if getattr(message, "is_topic_message", False) and getattr(message, "message_thread_id", None):
+            kwargs["message_thread_id"] = message.message_thread_id
+        try:
+            sent = await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"{moderation.WARNING_EMOJI} {name} {warning}".replace("  ", " "),
+                **kwargs,
+            )
+            task = asyncio.create_task(_delete_later(sent, moderation.WARNING_LIFETIME_SECONDS))
+            _BACKGROUND_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_TASKS.discard)
+        except TelegramError:
+            logger.exception("Could not send the moderation warning")
+    raise ApplicationHandlerStop
 
 
 async def handle_channel_posts(
@@ -569,6 +663,14 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
 def build_application(token: str) -> Application:
     """Create the Telegram application with all handlers (no network access here)."""
     app = Application.builder().token(token).build()
+    # group -1 runs first: forbidden messages are deleted and nothing else processes them.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL,
+            handle_moderation,
+        ),
+        group=-1,
+    )
     app.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members)
     )
