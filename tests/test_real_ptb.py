@@ -40,6 +40,9 @@ class TestRealDispatcherRouting(unittest.IsolatedAsyncioTestCase):
         import bot
         bot._SEEN = bot._SeenMessages()
         app = bot.build_application("123456:TEST-TOKEN-NOT-REAL")
+        # process_update() refuses to run before initialize(), which would call getMe (network).
+        # Mark it initialized instead: no Telegram access is needed to test filter routing.
+        app._initialized = True
         update = Update.de_json(_group_update(text, message_id, chat_type), app.bot)
         send = AsyncMock(return_value=None)
         with mock.patch.object(Bot, "send_message", send), mock.patch.dict(
