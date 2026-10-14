@@ -29,7 +29,7 @@ from typing import List, Optional
 logger = logging.getLogger("mayna-assistant.product")
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models/"
-MODEL = os.getenv("PRODUCT_GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-3.8-flash")).strip()
+MODEL = os.getenv("PRODUCT_GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
 CATALOG_FILE = os.getenv("PRODUCT_CATALOG_FILE", "").strip() or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "products_catalog.json"
 )
@@ -93,7 +93,6 @@ class Outcome:
     text: str = ""
     reason: str = ""
     product: Optional[Product] = None
-    technical: bool = False  # escalated because of a technical failure (Gemini/search/download), not for lack of data
 
 
 # ---------------------------------------------------------------------------
@@ -141,133 +140,30 @@ def _text_hint(text: str) -> Optional[Product]:
 # ---------------------------------------------------------------------------
 
 _PAUSED_UNTIL = 0.0
-FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite").split(",") if m.strip()]
-RETRY_CODES = (500, 502, 503, 504)  # temporary Google-side errors: worth retrying
-MODEL_GONE_CODES = (400, 404)       # this model id is unusable for this key: try the next model
-ATTEMPTS_PER_MODEL = 3
-BACKOFF_SECONDS = (1.5, 4.0)
-DEADLINE_SECONDS = 150  # total time budget for one logical call (all retries and fallbacks)
-REQUEST_TIMEOUT = 45
-IDENTIFY_TIMEOUT = 40   # photo/text identification: a healthy call answers in ~5-15 s
-SEARCH_TIMEOUT = 60     # Google Search grounding is legitimately slower
 
 
-def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = REQUEST_TIMEOUT) -> dict:
-    """POST to Gemini, trying configured fallback models after quota/rate-limit errors.
-
-    Authentication errors stop immediately. Quota errors are recorded and the next configured
-    model is attempted; if every model fails, calls are paused briefly to avoid repeated overload.
-    The API key is sent in a header, never in the URL or logs.
-    """
+def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 40) -> dict:
+    """POST to generateContent. The key travels in a header, never in the URL or the logs."""
     global _PAUSED_UNTIL
     if not api_key:
         raise GeminiUnavailable("no key")
     if time.time() < _PAUSED_UNTIL:
         raise GeminiUnavailable("paused after quota/auth error")
-
-    primary = model or MODEL
-    models = [primary] + [m for m in FALLBACK_MODELS if m != primary]
-    deadline = time.time() + DEADLINE_SECONDS
-    last = "no attempt"
-    history = []
-    saw_quota = False
-
-    for name in models:
-        body = dict(payload)
-        thinking = _thinking_for(name)
-        if thinking:
-            body["generationConfig"] = dict(
-                body.get("generationConfig") or {}, thinkingConfig=thinking
-            )
-        data = json.dumps(body).encode("utf-8")
-
-        for attempt in range(ATTEMPTS_PER_MODEL):
-            remaining = deadline - time.time()
-            if remaining < 3:
-                break
-            request = urllib.request.Request(
-                f"{API_ROOT}{name}:generateContent",
-                data=data,
-                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-                method="POST",
-            )
-            started = time.time()
-            try:
-                with urllib.request.urlopen(request, timeout=min(timeout, remaining)) as response:
-                    result = json.loads(response.read().decode("utf-8"))
-                if name != primary:
-                    logger.warning("Gemini answered through fallback model %s", name)
-                return result
-            except urllib.error.HTTPError as exc:
-                last = f"http {exc.code} on {name}: {_http_error_detail(exc)}"
-                history.append(last)
-                if exc.code in (401, 403):
-                    _PAUSED_UNTIL = time.time() + 600
-                    raise GeminiUnavailable(last) from None
-                if exc.code == 429:
-                    saw_quota = True
-                    logger.warning("Gemini quota/rate limit on %s; trying fallback model", name)
-                    break
-                if exc.code == 400 and thinking:
-                    thinking = None
-                    cfg = dict(body.get("generationConfig") or {})
-                    cfg.pop("thinkingConfig", None)
-                    body["generationConfig"] = cfg
-                    data = json.dumps(body).encode("utf-8")
-                    continue
-                if exc.code in MODEL_GONE_CODES:
-                    break
-                if exc.code not in RETRY_CODES:
-                    raise GeminiUnavailable(last) from None
-            except Exception as exc:
-                last = f"{type(exc).__name__} on {name}"
-                if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
-                    phase = "connect" if isinstance(getattr(exc, "reason", None), TimeoutError) else "read"
-                    last = f"{phase} timeout after {time.time() - started:.0f}s on {name}"
-                    history.append(last)
-                    logger.warning("Gemini call failed (%s); trying next model", last)
-                    break
-                history.append(last)
-
-            logger.warning(
-                "Gemini call failed (%s), attempt %d/%d",
-                last, attempt + 1, ATTEMPTS_PER_MODEL,
-            )
-            if attempt < ATTEMPTS_PER_MODEL - 1:
-                delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
-                if time.time() + delay < deadline:
-                    time.sleep(delay)
-
-    if saw_quota:
-        _PAUSED_UNTIL = time.time() + 60
-    details = "; ".join(history[-4:]) or last
-    raise GeminiUnavailable(f"all configured models failed ({details})")
-
-def _http_error_detail(exc) -> str:
-    """Short Google error message (e.g. 'API key not valid'), for the logs. Never includes our key."""
+    request = urllib.request.Request(
+        f"{API_ROOT}{model or MODEL}:generateContent",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        method="POST",
+    )
     try:
-        body = json.loads(exc.read().decode("utf-8", "replace"))
-        return re.sub(r"\s+", " ", str(body["error"]["message"]))[:160]
-    except Exception:
-        return "no detail"
-
-
-def _thinking_for(model_name: str):
-    """Hidden 'thinking' makes answers slow and eats output tokens; extraction needs little of it."""
-    name = model_name.lower()
-    if "2.5-flash" in name and "lite" not in name:
-        return {"thinkingBudget": 0}
-    if name.startswith("gemini-3"):
-        return {"thinkingLevel": "low"}  # 'minimal' is not supported by 3.8 Flash
-    return None
-
-
-def _gen_config(max_tokens: int, **extra) -> dict:
-    """Generation settings. Token limits are generous because hidden thinking also counts as output;
-    the thinking level itself is set per model in _post_gemini."""
-    cfg = {"temperature": 0, "maxOutputTokens": max_tokens}
-    cfg.update(extra)
-    return cfg
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403, 429):
+            _PAUSED_UNTIL = time.time() + 600
+        raise GeminiUnavailable(f"http {exc.code}") from None
+    except Exception as exc:  # network, timeout, malformed JSON ...
+        raise GeminiUnavailable(type(exc).__name__) from None
 
 
 def _answer_text(data: dict) -> str:
@@ -326,10 +222,9 @@ def identify(text: str, image: Optional[bytes], mime: str, api_key: str) -> Prod
     data = _post_gemini(
         {
             "contents": [{"parts": parts}],
-            "generationConfig": _gen_config(4096, responseMimeType="application/json"),
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 400, "responseMimeType": "application/json"},
         },
         api_key,
-        timeout=IDENTIFY_TIMEOUT,
     )
     obj = _parse_json(_answer_text(data))
     requested = obj.get("requested_specs")
@@ -428,10 +323,9 @@ def search_web(product: Product, api_key: str):
         {
             "contents": [{"parts": [{"text": prompt}]}],
             "tools": [{"google_search": {}}],
-            "generationConfig": _gen_config(8192),
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 900},
         },
         api_key,
-        timeout=SEARCH_TIMEOUT,
     )
     obj = _parse_json(_answer_text(data))
     specs = []
@@ -462,8 +356,8 @@ def format_reply(product: Product, specs: List[Spec], sources: List[Source], ori
     return "\n".join(lines)[:3900]
 
 
-def _escalate(reason: str, product: Optional[Product] = None, technical: bool = False) -> Outcome:
-    return Outcome("escalate", reason=reason, product=product, technical=technical)
+def _escalate(reason: str, product: Optional[Product] = None) -> Outcome:
+    return Outcome("escalate", reason=reason, product=product)
 
 
 def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/jpeg", api_key: str = "", has_image: bool = None) -> Outcome:
@@ -492,9 +386,9 @@ def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/
         product = _text_hint(text)
         if product is None:
             if has_image:
-                return _escalate(f"تعذر التعرف على المنتج من الصورة: {failure or 'لا توجد صورة قابلة للتحميل'}", technical=True)
+                return _escalate(f"تعذر التعرف على المنتج من الصورة: {failure or 'لا توجد صورة قابلة للتحميل'}")
             if failure and api_key:
-                return _escalate(failure, technical=True)
+                return _escalate(failure)
             return Outcome("not_product", reason=failure)
 
     if not product.is_product:
@@ -517,7 +411,7 @@ def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/
         exact, specs, sources = search_web(product, api_key)
     except GeminiUnavailable as exc:
         logger.warning("Web search failed: %s", exc)
-        return _escalate(f"فشل البحث في الإنترنت ({exc})", product, technical=True)
+        return _escalate(f"فشل البحث في الإنترنت ({exc})", product)
 
     confirmed = [s for s in specs if s.confirmed]
     if not exact or not sources or not confirmed:

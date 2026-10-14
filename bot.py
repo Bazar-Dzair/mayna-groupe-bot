@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -60,7 +59,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mayna-assistant")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "").strip() or product_search.DEFAULT_MODEL  # empty value (unset Actions variable) -> default
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 INTRO_TEXTS = {
     "registration": "مرحبا بيك في Mayna. هذا شرح التسجيل وكيفاش تبدا:",
@@ -195,7 +194,7 @@ def classify_with_gemini(text: str, candidates=None):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": 1024},
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 40},
     }
     request = urllib.request.Request(
         url,
@@ -308,10 +307,6 @@ async def _answer_product(update, context, text, ref) -> bool:
     False if it is not a product question and the normal flow must continue."""
     message = update.effective_message
     chat = update.effective_chat
-    try:  # search can take several seconds: show "typing" (best effort)
-        await context.bot.send_chat_action(chat_id=chat.id, action="typing")
-    except Exception:
-        pass
     image = await _download_image(context, ref) if ref else None
     mime = ref[1] if ref else "image/jpeg"
     outcome = await asyncio.to_thread(
@@ -323,26 +318,22 @@ async def _answer_product(update, context, text, ref) -> bool:
     )
     if outcome.kind == "not_product":
         return False
-    if outcome.kind in ("answer", "partial", "ask_model"):
+    if outcome.kind in ("answer", "ask_model"):
         await _safe_reply(message, outcome.text)
         return True
     # escalate: tell the member only what is true
-    logger.warning("Product question escalated: %s", outcome.reason)
     notified = await _notify_admin(context, message, chat, text, "منتج: " + outcome.reason)
     if notified:
-        head = (
-            "ما قدرتش نتحقق من المنتج حاليا بسبب مشكل تقني مؤقت، والسؤال محتاج تحقق. "
-            if outcome.technical
-            else "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
+        reply = (
+            "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
+            + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين")
+            + " باش يتأكدوا ويجاوبوك."
         )
-        reply = head + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين") + " باش يتأكدوا ويجاوبوك."
     else:
         reply = (
             "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "
             "ممكن تنادي المشرفين مباشرة هنا في المجموعة."
         )
-    if os.getenv("PRODUCT_DEBUG", "").strip() == "1":  # temporary diagnostics, off by default
-        reply += f"\n\n[debug: {outcome.reason}]"
     await _safe_reply(message, reply + CHANNEL_FOOTER)
     return True
 
@@ -595,34 +586,6 @@ def build_application(token: str) -> Application:
     return app
 
 
-def _gemini_selftest() -> None:
-    """Startup probe (runs in a background thread, never blocks the bot): one tiny text request per model,
-    logged in the GitHub Actions output, to show whether the key/network work and how fast each model answers."""
-    if not GEMINI_API_KEY:
-        return
-    names = [product_search.MODEL] + [m for m in product_search.FALLBACK_MODELS if m != product_search.MODEL]
-    for name in names:
-        started = time.time()
-        request = urllib.request.Request(
-            f"{product_search.API_ROOT}{name}:generateContent",
-            data=json.dumps({
-                "contents": [{"parts": [{"text": "Reply with the single word: OK"}]}],
-                "generationConfig": {"temperature": 0, "maxOutputTokens": 64},
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                response.read()
-            result = "OK"
-        except urllib.error.HTTPError as exc:
-            result = f"HTTP {exc.code} {product_search._http_error_detail(exc)}"
-        except Exception as exc:  # network, timeout ...
-            result = f"{type(exc).__name__}"
-        logger.info("Gemini selftest model=%s result=%s seconds=%.1f", name, result, time.time() - started)
-
-
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
@@ -632,9 +595,8 @@ def main() -> None:
         )
 
     logger.info(
-        "Config: GEMINI_API_KEY=%s GEMINI_MODEL=%s PRODUCT_GEMINI_MODEL=%s fallbacks=%s ADMIN_CHAT_ID=%s GROUP_CHAT_ID=%s",
+        "Config: GEMINI_API_KEY=%s ADMIN_CHAT_ID=%s GROUP_CHAT_ID=%s",
         "set" if GEMINI_API_KEY else "missing",
-        GEMINI_MODEL, product_search.MODEL, ",".join(product_search.FALLBACK_MODELS) or "-",
         "set" if os.getenv("ADMIN_CHAT_ID", "").strip() else "missing",
         "set" if os.getenv("GROUP_CHAT_ID", "").strip() else "missing",
     )
@@ -645,8 +607,6 @@ def main() -> None:
         os.getenv("GITHUB_SHA", "local")[:7], len(delivery.WILAYAS),
         "OK" if selftest.handled and selftest.wilayas == ["وهران"] else "FAILED",
     )
-
-    threading.Thread(target=_gemini_selftest, name="gemini-selftest", daemon=True).start()
 
     app = build_application(token)
 
