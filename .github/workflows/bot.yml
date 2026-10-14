@@ -30,13 +30,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
 
       - name: Syntax check
-        run: python -m py_compile bot.py matcher.py delivery.py product_search.py
+        run: python -m py_compile bot.py matcher.py delivery.py product_search.py dhd_tracking.py
 
       - name: Run tests (no Telegram or Gemini access needed)
-        continue-on-error: true  # a failing test is shown in red but never keeps the bot from starting
         run: python -m unittest discover -s tests -t .
 
       - name: Start Mayna bot
@@ -45,5 +46,4 @@ jobs:
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PRODUCT_DEBUG: "1"  # shows the failure reason in the reply; delete this line once everything works
         run: python bot.py
