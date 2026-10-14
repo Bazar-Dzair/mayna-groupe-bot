@@ -32,9 +32,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Syntax check
+        run: python -m py_compile bot.py matcher.py delivery.py product_search.py
+
+      - name: Run tests (no Telegram or Gemini access needed)
+        run: python -m unittest discover -s tests -t .
+
       - name: Start Mayna bot
         env:
-          env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
