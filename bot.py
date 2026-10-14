@@ -406,6 +406,9 @@ async def _answer_topic(update, context, topic, wilaya=""):
 # ---------------------------------------------------------------------------
 
 
+WELCOME_LIFETIME_SECONDS = 10
+
+
 async def handle_new_members(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -416,13 +419,17 @@ async def handle_new_members(
     for member in message.new_chat_members:
         if member.is_bot:
             continue
-        await message.reply_text(
+        sent = await message.reply_text(
             f"مرحبا بيك {member.first_name or ''} في مجموعة Mayna.\n"
             "المجموعة هذه مخصصة لاستفسارات مسوقي Mayna: الشروحات، تسجيل الطلبات، "
             "العمولات والتوصيل وتتبع الطلبيات. "
             "اكتب سؤالك ونحاولوا نوجهوك للشرح المناسب."
             + CHANNEL_FOOTER
         )
+        if sent is not None:  # the welcome disappears by itself so the group stays clean
+            task = asyncio.create_task(_delete_later(sent, WELCOME_LIFETIME_SECONDS))
+            _BACKGROUND_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
 async def handle_group_message(
@@ -561,7 +568,7 @@ async def _delete_later(bot_message, seconds):
     await asyncio.sleep(seconds)
     try:
         await bot_message.delete()
-    except TelegramError:
+    except Exception:  # already deleted, no rights, ...: nothing to do
         pass
 
 
