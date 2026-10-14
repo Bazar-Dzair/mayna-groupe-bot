@@ -474,6 +474,16 @@ async def handle_group_message(
         try:
             results = [await asyncio.to_thread(tracking.lookup, n) for n in numbers]
             sent = await _safe_reply(message, tracking.build_reply(results))
+            admin_chat_id = _env_chat_id("ADMIN_CHAT_ID")
+            failed = [r for r in results if not r.ok and r.error != "not_found"]
+            if failed and admin_chat_id is not None:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_chat_id,
+                        text="تشخيص التتبع (للأدمن فقط):\n" + "\n".join(f"{r.number}: {r.debug or r.error}" for r in failed)[:3500],
+                    )
+                except TelegramError:
+                    logger.exception("Could not send tracking diagnostics to admin")
             logger.info(
                 "Tracking lookup: numbers=%s ok=%s errors=%s sent=%s message_id=%s",
                 ",".join(numbers), [r.ok for r in results], [r.error or "-" for r in results], sent, message.message_id,

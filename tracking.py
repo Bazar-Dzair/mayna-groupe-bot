@@ -68,6 +68,7 @@ class TrackingResult:
     raw_status: str = ""             # latest status text exactly as the site shows it
     history: List[str] = field(default_factory=list)  # latest events, newest first
     error: str = ""                  # "not_found" | "unreachable" | "unreadable"
+    debug: str = ""                  # technical details, sent to the admin only
 
 
 def find_tracking_numbers(text: str) -> List[str]:
@@ -252,32 +253,39 @@ def parse_response(number: str, body: str) -> TrackingResult:
 
 def lookup(number: str) -> TrackingResult:
     """Blocking call (run it with asyncio.to_thread). Never raises.
-    1) plain HTTP request; 2) if that gives no readable status, a real headless browser."""
+    1) plain HTTP request; 2) if that gives no readable status, a real headless browser.
+    result.debug holds technical notes (for the admin, never shown in the group)."""
+    notes = []
     result = TrackingResult(number=number, error="unreachable")
     try:
         body = _fetch_raw(number)
         result = parse_response(number, body)
         if not result.ok:
-            logger.warning("DHD tracking plain request unreadable (%s). Body start: %r",
-                           result.error, (body or "")[:300])
+            notes.append(f"plain: unreadable ({result.error}); start: {(body or '')[:200]!r}")
     except urllib.error.HTTPError as exc:
-        logger.warning("DHD tracking plain request HTTP %s for %s", exc.code, number)
+        notes.append(f"plain: HTTP {exc.code}")
         result = TrackingResult(number=number, error="not_found" if exc.code == 404 else "unreachable")
     except Exception as exc:
-        logger.warning("DHD tracking plain request failed: %s", type(exc).__name__)
-    if result.ok or result.error == "not_found" and not os.getenv("DHD_FORCE_BROWSER"):
+        notes.append(f"plain: {type(exc).__name__}")
+    if result.ok or (result.error == "not_found" and not os.getenv("DHD_FORCE_BROWSER")):
+        result.debug = " | ".join(notes)
         return result
     try:
         body = _fetch_with_browser(number)
         browsed = parse_response(number, body)
         if not browsed.ok:
-            logger.warning("DHD tracking browser result unreadable (%s). Text start: %r",
-                           browsed.error, (body or "")[:500])
-        return browsed if (browsed.ok or browsed.error == "not_found") else result
+            notes.append(f"browser: unreadable ({browsed.error}); text start: {(body or '')[:400]!r}")
+        else:
+            notes.append("browser: ok")
+        if browsed.ok or browsed.error == "not_found":
+            browsed.debug = " | ".join(notes)
+            return browsed
     except ImportError:
-        logger.warning("Playwright not installed: browser fallback skipped")
+        notes.append("browser: playwright not installed")
     except Exception as exc:
-        logger.warning("DHD tracking browser fallback failed: %s: %s", type(exc).__name__, str(exc)[:200])
+        notes.append(f"browser: {type(exc).__name__}: {str(exc)[:300]}")
+    result.debug = " | ".join(notes)
+    logger.warning("DHD tracking failed for %s: %s", number, result.debug)
     return result
 
 
