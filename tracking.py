@@ -173,11 +173,36 @@ def _browse(number: str) -> str:
 
             page.on("response", on_response)
             page.goto(TRACK_PAGE, wait_until="networkidle", timeout=30000)
-            box = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio])").first
+            # give anti-bot interstitials ("Just a moment...") a chance to finish
+            for _ in range(6):
+                if not re.search(r"just a moment|un instant|attention required|verify|vérif", page.title() or "", re.I):
+                    break
+                page.wait_for_timeout(2500)
+            sel = "input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea:visible"
+            target = None
+            for frame in page.frames:  # main page first, then iframes
+                loc = frame.locator(sel)
+                try:
+                    loc.first.wait_for(state="visible", timeout=8000 if frame == page.main_frame else 1500)
+                    target = (frame, loc)
+                    break
+                except Exception:
+                    continue
+            if target is None:
+                try:
+                    text = page.inner_text("body")[:300].replace("\n", " ")
+                except Exception:
+                    text = "?"
+                raise RuntimeError(
+                    f"no input found; title={page.title()!r} url={page.url!r} frames={len(page.frames)} "
+                    f"inputs={page.locator('input').count()} text={text!r}"
+                )
+            frame, loc = target
+            box = loc.first
             box.fill(number, timeout=10000)
-            button = page.locator(
-                "button:visible, input[type=submit]:visible"
-            ).filter(has_text=re.compile(r"suiv|track|rechercher|search|بحث|تتبع|ok", re.I))
+            button = frame.locator("button:visible, input[type=submit]:visible, a:visible").filter(
+                has_text=re.compile(r"suiv|track|rechercher|search|chercher|بحث|تتبع|^ok$", re.I)
+            )
             if button.count():
                 button.first.click()
             else:
