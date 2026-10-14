@@ -205,5 +205,30 @@ class TestBotSilentForAdmin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("@MaynaDz" in t for t in texts), texts)
 
 
+class TestWelcomeDisappears(unittest.IsolatedAsyncioTestCase):
+    async def test_welcome_is_deleted_after_10_seconds(self):
+        self.assertEqual(bot.WELCOME_LIFETIME_SECONDS, 10)
+        welcome = NS(delete=AsyncMock())
+        message = NS(
+            new_chat_members=[NS(is_bot=False, first_name="Sami"), NS(is_bot=True, first_name="SomeBot")],
+            reply_text=AsyncMock(return_value=welcome),
+        )
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with mock.patch.object(bot.asyncio, "sleep", fake_sleep):
+            await bot.handle_new_members(NS(effective_message=message), NS())
+            await bot.asyncio.gather(*list(bot._BACKGROUND_TASKS))
+        message.reply_text.assert_awaited_once()      # no welcome for the bot member
+        self.assertEqual(sleeps, [10])
+        welcome.delete.assert_awaited_once()
+
+    async def test_failed_delete_does_not_crash(self):
+        welcome = NS(delete=AsyncMock(side_effect=Exception("gone")))
+        await bot._delete_later(welcome, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
