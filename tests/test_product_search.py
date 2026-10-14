@@ -38,11 +38,13 @@ WEB_OK = {
 }
 
 
-def fake_gemini(ident=None, web=None, sources=(SOURCE,), ident_exc=None, web_exc=None, calls=None):
+def fake_gemini(ident=None, web=None, sources=(SOURCE,), ident_exc=None, web_exc=None, calls=None, payloads=None):
     def _post(payload, api_key, model=None, timeout=40):
         is_web = "tools" in payload
         if calls is not None:
             calls.append("web" if is_web else "identify")
+        if payloads is not None:
+            payloads.append(payload)
         if is_web:
             if web_exc:
                 raise web_exc
@@ -190,16 +192,6 @@ class TestFailures(ProductBase):
             await bot.handle_group_message(update, ctx)
         self.assertTrue(self.admin_events(ev))
 
-    async def test_product_cannot_be_identified_asks_for_label_photo_and_does_not_search(self):
-        update, ctx, ev = make_update("", photo=True, caption="شحال الوزن؟")
-        attach_photo(update, ctx)
-        calls = []
-        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL, WEB_OK, calls=calls)):
-            await bot.handle_group_message(update, ctx)
-        self.assertEqual(calls, ["identify"])  # no web search on a guessed product
-        self.assertIn("الملصق", self.replies(ev)[0])
-        self.assertEqual(self.admin_events(ev), [])
-
     async def test_wrong_model_found_is_not_presented_as_the_product(self):
         update, ctx, ev = make_update("واش هي مواصفات TB-100؟")
         with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, dict(WEB_OK, exact_model_match=False))):
@@ -229,6 +221,168 @@ class TestFailures(ProductBase):
             with self.assertLogs("mayna-assistant", level="ERROR"):
                 await bot.handle_group_message(update, ctx)
         self.assertTrue(self.admin_events(ev))  # old behaviour: unmatched photo goes to admin
+
+
+IDENT_NO_MODEL_RICH = dict(
+    IDENT_NO_MODEL, brand="TestBrand", visible_text=["TestBrand", "220V"], description="black round air fryer with a front dial",
+    search_queries=["TestBrand black air fryer dial"],
+)
+DESC_PROBABLE = {
+    "match": "probable", "candidate_name": "TestBrand Air Fryer", "candidate_brand": "TestBrand", "candidate_model": "TB-200",
+    "visual_comparison": "نفس الشكل واللون", "conflicts": [], "specs": [{"label": "القوة", "value": "1500 W"}],
+}
+
+
+def photo_args(**kw):
+    return dict(text="شحال الوزن؟", image=b"IMG", mime="image/png", api_key="k", has_image=True, **kw)
+
+
+class TestSearchByDescription(ProductBase):
+    async def test_no_model_does_not_stop_it_searches_by_description_and_never_confirms(self):
+        update, ctx, ev = make_update("", photo=True, caption="شحال الوزن؟")
+        attach_photo(update, ctx)
+        calls = []
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, DESC_PROBABLE, calls=calls)):
+            await bot.handle_group_message(update, ctx)
+        self.assertEqual(calls, ["identify", "web"])
+        text = self.replies(ev)[0]
+        self.assertIn("TestBrand", text)
+        self.assertIn("ما قدرتش نأكد الموديل", text)
+        self.assertIn("1500 W", text)
+        self.assertNotIn("✅", text)  # similar product: nothing is "confirmed"
+        self.assertLess(text.index("⚠️"), text.index("1500 W"))
+        self.assertIn(SOURCE, text)
+        self.assertIn("غير مؤكد", text)
+        self.assertEqual(self.admin_events(ev), [])
+
+    def test_photo_is_sent_to_gemini_as_inline_base64_in_both_steps(self):
+        import base64
+        payloads = []
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, DESC_PROBABLE, payloads=payloads)):
+            ps.search_product(**photo_args())
+        self.assertEqual(len(payloads), 2)
+        for payload in payloads:
+            inline = [p["inline_data"] for p in payload["contents"][0]["parts"] if "inline_data" in p]
+            self.assertEqual(len(inline), 1)
+            self.assertEqual(inline[0]["mime_type"], "image/png")
+            self.assertEqual(base64.b64decode(inline[0]["data"]), b"IMG")
+
+    def test_identify_prompt_asks_for_visible_text_description_and_queries(self):
+        payloads = []
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, DESC_PROBABLE, payloads=payloads)):
+            out = ps.search_product(**photo_args())
+        prompt = payloads[0]["contents"][0]["parts"][0]["text"]
+        for key in ("visible_text", "description", "search_queries", "NEVER guess a model"):
+            self.assertIn(key, prompt)
+        self.assertEqual(out.product.visible_text, ["TestBrand", "220V"])
+        self.assertIn("front dial", out.product.description)
+
+    def test_no_matching_product_found_says_what_is_known_and_what_is_not(self):
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, {"match": "none", "conflicts": [], "specs": []})):
+            out = ps.search_product(**photo_args())
+        self.assertEqual(out.kind, "partial")
+        self.assertIn("TestBrand", out.text)
+        self.assertIn("ما لقيتش منتج مطابق", out.text)
+        self.assertNotIn("1500", out.text)
+        self.assertIn("الملصق", out.text)
+
+    def test_candidate_without_any_source_link_is_dropped(self):
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, DESC_PROBABLE, sources=())):
+            out = ps.search_product(**photo_args())
+        self.assertNotIn("1500", out.text)
+        self.assertNotIn("TB-200", out.text)
+
+    def test_candidate_with_reported_conflict_or_other_brand_is_dropped(self):
+        for web in (dict(DESC_PROBABLE, conflicts=["different shape"]), dict(DESC_PROBABLE, candidate_brand="OtherBrand")):
+            with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, web)):
+                out = ps.search_product(**photo_args())
+            self.assertNotIn("1500", out.text)
+            self.assertNotIn("TB-200", out.text)
+
+    def test_candidate_specs_are_never_marked_confirmed_even_if_model_says_so(self):
+        web = dict(DESC_PROBABLE, specs=[{"label": "القوة", "value": "1500 W", "confirmed": True}])
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, web)):
+            out = ps.search_product(**photo_args())
+        self.assertNotIn("✅", out.text)
+
+    def test_search_failure_is_escalated_technical_and_logged(self):
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, web_exc=ps.GeminiUnavailable("http 503 on x"))):
+            with self.assertLogs("mayna-assistant.product", level="WARNING") as logs:
+                out = ps.search_product(**photo_args())
+        self.assertEqual((out.kind, out.technical), ("escalate", True))
+        self.assertIn("http 503", out.reason)
+        self.assertIn("http 503", " ".join(logs.output))
+
+    def test_nothing_recognisable_asks_for_label_without_searching(self):
+        calls = []
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(dict(IDENT_NO_MODEL, name="", category="", brand=""), WEB_OK, calls=calls)):
+            out = ps.search_product(**photo_args())
+        self.assertEqual((out.kind, calls), ("ask_model", ["identify"]))
+        self.assertIn("الملصق", out.text)
+
+    def test_text_only_question_without_model_still_asks_for_model(self):
+        calls = []
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_NO_MODEL_RICH, DESC_PROBABLE, calls=calls)):
+            out = ps.search_product("شحال قوة الخلاط؟", None, api_key="k")
+        self.assertEqual((out.kind, calls), ("ask_model", ["identify"]))
+
+    def test_exact_model_path_sends_photo_and_rejects_page_that_looks_different(self):
+        payloads = []
+        web = dict(WEB_OK, image_consistent=False)
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, web, payloads=payloads)):
+            out = ps.search_product(**photo_args())
+        self.assertTrue(any("inline_data" in p for p in payloads[1]["contents"][0]["parts"]))
+        self.assertEqual(out.kind, "escalate")
+        self.assertNotIn("1400", out.text)
+
+
+class TestGeminiErrorsAreVisible(unittest.TestCase):
+    def setUp(self):
+        ps._PAUSED_UNTIL = 0.0
+        self.addCleanup(setattr, ps, "_PAUSED_UNTIL", 0.0)
+
+    def test_http_error_detail_reaches_reason_and_log_but_never_the_key(self):
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 403, "x", {}, io.BytesIO(b'{"error": {"message": "API key not valid"}}'))
+        with mock.patch("urllib.request.urlopen", side_effect=boom):
+            with self.assertLogs("mayna-assistant.product", level="WARNING"):
+                out = ps.search_product("", b"IMG", "image/jpeg", "SECRETKEY", True)
+        self.assertEqual((out.kind, out.technical), ("escalate", True))
+        self.assertIn("API key not valid", out.reason)
+        self.assertNotIn("SECRETKEY", out.reason)
+
+
+class TestEnvConfig(unittest.TestCase):
+    def reload_with(self, **env):
+        import importlib
+        base = {k: "" for k in ("GEMINI_MODEL", "PRODUCT_GEMINI_MODEL", "PRODUCT_GEMINI_FALLBACKS")}
+        with mock.patch.dict(os.environ, dict(base, **env)):
+            module = importlib.reload(ps)
+            return module.MODEL, list(module.FALLBACK_MODELS)
+
+    def tearDown(self):
+        import importlib
+        importlib.reload(ps)
+
+    def test_empty_actions_variables_fall_back_to_defaults(self):
+        model, fallbacks = self.reload_with()
+        self.assertEqual(model, ps.DEFAULT_MODEL)
+        self.assertTrue(fallbacks)
+
+    def test_gemini_model_and_product_model_are_read_with_the_right_priority(self):
+        self.assertEqual(self.reload_with(GEMINI_MODEL="m-general")[0], "m-general")
+        self.assertEqual(self.reload_with(GEMINI_MODEL="m-general", PRODUCT_GEMINI_MODEL="m-product")[0], "m-product")
+        self.assertEqual(self.reload_with(PRODUCT_GEMINI_FALLBACKS="a, b")[1], ["a", "b"])
+
+    def test_workflow_passes_the_model_variables_and_no_secret_is_hardcoded(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, ".github", "workflows", "bot.yml"), encoding="utf-8") as fh:
+            workflow = fh.read()
+        for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "PRODUCT_GEMINI_MODEL", "PRODUCT_GEMINI_FALLBACKS"):
+            self.assertRegex(workflow, name + r": \$\{\{ (vars|secrets)\.")
+        for name in ("product_search.py", "bot.py"):
+            with open(os.path.join(root, name), encoding="utf-8") as fh:
+                self.assertNotRegex(fh.read(), r"AIza[0-9A-Za-z_-]{20,}")
 
 
 class TestExistingFeaturesKeepPriority(ProductBase):
