@@ -19,6 +19,7 @@ from telegram.ext import (
 import delivery
 import matcher
 import product_search
+import dhd_tracking
 from matcher import classify, extract_wilaya, normalize
 
 # All links below refer to posts in the Mayna private channel.
@@ -465,6 +466,28 @@ async def handle_group_message(
 
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
+        return
+
+    # DHD tracking: recognize a standalone tracking code or an explicit tracking request.
+    tracking_number = dhd_tracking.extract_tracking_number(text)
+    if tracking_number:
+        result = await asyncio.to_thread(dhd_tracking.lookup_tracking, tracking_number)
+        if result.get("status"):
+            await _safe_reply(
+                message,
+                "نتيجة تتبع DHD\n"
+                f"رقم التتبع: {tracking_number}\n"
+                f"الحالة: {result['status']}\n\n"
+                "ملاحظة: تحقق من الرابط الرسمي إذا كانت الحالة تحتاج تفاصيل أكثر.\n"
+                + result.get("url", dhd_tracking.TRACKING_URL),
+            )
+        else:
+            await _safe_reply(
+                message,
+                "تعرّفت على رقم التتبع، لكن ما قدرتش نقرأ الحالة آليًا من موقع DHD.\n"
+                f"رقم التتبع: {tracking_number}\n"
+                "افتح الموقع الرسمي وأدخل الرقم في خانة التتبع: "+dhd_tracking.TRACKING_URL,
+            )
         return
 
     # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
