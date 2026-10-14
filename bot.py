@@ -19,7 +19,6 @@ from telegram.ext import (
 import delivery
 import matcher
 import product_search
-import tracking
 from matcher import classify, extract_wilaya, normalize
 
 # All links below refer to posts in the Mayna private channel.
@@ -467,30 +466,6 @@ async def handle_group_message(
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
         return
-
-    # -1) Tracking numbers (e.g. DHDCQI726101420522909): look the parcel up on the DHD tracking site.
-    numbers = tracking.find_tracking_numbers(text)
-    if numbers:
-        try:
-            results = [await asyncio.to_thread(tracking.lookup, n) for n in numbers]
-            sent = await _safe_reply(message, tracking.build_reply(results))
-            admin_chat_id = _env_chat_id("ADMIN_CHAT_ID")
-            failed = [r for r in results if not r.ok and r.error != "not_found"]
-            if failed and admin_chat_id is not None:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_chat_id,
-                        text="تشخيص التتبع (للأدمن فقط):\n" + "\n".join(f"{r.number}: {r.debug or r.error}" for r in failed)[:3500],
-                    )
-                except TelegramError:
-                    logger.exception("Could not send tracking diagnostics to admin")
-            logger.info(
-                "Tracking lookup: numbers=%s ok=%s errors=%s sent=%s message_id=%s",
-                ",".join(numbers), [r.ok for r in results], [r.error or "-" for r in results], sent, message.message_id,
-            )
-            return
-        except Exception:  # never let a bug here silence the bot
-            logger.exception("Tracking lookup crashed; falling back to the generic flow")
 
     # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
     try:
