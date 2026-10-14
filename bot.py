@@ -307,6 +307,10 @@ async def _answer_product(update, context, text, ref) -> bool:
     False if it is not a product question and the normal flow must continue."""
     message = update.effective_message
     chat = update.effective_chat
+    try:  # search can take several seconds: show "typing" (best effort)
+        await context.bot.send_chat_action(chat_id=chat.id, action="typing")
+    except Exception:
+        pass
     image = await _download_image(context, ref) if ref else None
     mime = ref[1] if ref else "image/jpeg"
     outcome = await asyncio.to_thread(
@@ -325,11 +329,12 @@ async def _answer_product(update, context, text, ref) -> bool:
     logger.warning("Product question escalated: %s", outcome.reason)
     notified = await _notify_admin(context, message, chat, text, "منتج: " + outcome.reason)
     if notified:
-        reply = (
-            "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
-            + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين")
-            + " باش يتأكدوا ويجاوبوك."
+        head = (
+            "ما قدرتش نتحقق من المنتج حاليا بسبب مشكل تقني مؤقت، والسؤال محتاج تحقق. "
+            if outcome.technical
+            else "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، والسؤال محتاج تحقق. "
         )
+        reply = head + ("وصلنا السؤال مع الصورة للمشرفين" if ref else "وصلنا السؤال للمشرفين") + " باش يتأكدوا ويجاوبوك."
     else:
         reply = (
             "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "

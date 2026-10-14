@@ -93,6 +93,7 @@ class Outcome:
     text: str = ""
     reason: str = ""
     product: Optional[Product] = None
+    technical: bool = False  # escalated because of a technical failure (Gemini/search/download), not for lack of data
 
 
 # ---------------------------------------------------------------------------
@@ -140,30 +141,68 @@ def _text_hint(text: str) -> Optional[Product]:
 # ---------------------------------------------------------------------------
 
 _PAUSED_UNTIL = 0.0
+FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash").split(",") if m.strip()]
+RETRY_CODES = (500, 502, 503, 504)  # temporary Google-side errors: worth retrying
+MODEL_GONE_CODES = (400, 404)       # this model id is unusable for this key: try the next model
+ATTEMPTS_PER_MODEL = 3
+BACKOFF_SECONDS = (1.5, 4.0)
+DEADLINE_SECONDS = 75  # total time budget for one logical call (all retries and fallbacks)
 
 
 def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 40) -> dict:
-    """POST to generateContent. The key travels in a header, never in the URL or the logs."""
+    """POST to generateContent, resilient to Google's temporary overload.
+
+    - 500/502/503/504 and network errors: retried with a short backoff, then the next fallback model.
+    - 404/400 (model not available): next fallback model.
+    - 401/403/429 (bad key / quota): no retry, Gemini is paused for a while so the group is not stuck waiting.
+    The key travels in a header, never in the URL or the logs."""
     global _PAUSED_UNTIL
     if not api_key:
         raise GeminiUnavailable("no key")
     if time.time() < _PAUSED_UNTIL:
         raise GeminiUnavailable("paused after quota/auth error")
-    request = urllib.request.Request(
-        f"{API_ROOT}{model or MODEL}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403, 429):
-            _PAUSED_UNTIL = time.time() + 600
-        raise GeminiUnavailable(f"http {exc.code}: {_http_error_detail(exc)}") from None
-    except Exception as exc:  # network, timeout, malformed JSON ...
-        raise GeminiUnavailable(type(exc).__name__) from None
+    models = [model or MODEL] + [m for m in FALLBACK_MODELS if m != (model or MODEL)]
+    deadline = time.time() + DEADLINE_SECONDS
+    last = "no attempt"
+    for name in models:
+        body = dict(payload)
+        if "2.5-flash" not in name and isinstance(body.get("generationConfig"), dict):
+            body["generationConfig"] = {k: v for k, v in body["generationConfig"].items() if k != "thinkingConfig"}
+        data = json.dumps(body).encode("utf-8")
+        for attempt in range(ATTEMPTS_PER_MODEL):
+            remaining = deadline - time.time()
+            if remaining < 3:
+                raise GeminiUnavailable(f"timeout after retries (last: {last})")
+            request = urllib.request.Request(
+                f"{API_ROOT}{name}:generateContent",
+                data=data,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=min(timeout, remaining)) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                if name != models[0]:
+                    logger.warning("Gemini answered through fallback model %s", name)
+                return result
+            except urllib.error.HTTPError as exc:
+                last = f"http {exc.code} on {name}: {_http_error_detail(exc)}"
+                if exc.code in (401, 403):
+                    _PAUSED_UNTIL = time.time() + 600
+                    raise GeminiUnavailable(last) from None
+                if exc.code == 429:
+                    _PAUSED_UNTIL = time.time() + 60
+                    raise GeminiUnavailable(last) from None
+                if exc.code in MODEL_GONE_CODES:
+                    break  # next model
+                if exc.code not in RETRY_CODES:
+                    raise GeminiUnavailable(last) from None
+            except Exception as exc:  # network, timeout, malformed JSON ...
+                last = f"{type(exc).__name__} on {name}"
+            logger.warning("Gemini call failed (%s), attempt %d/%d", last, attempt + 1, ATTEMPTS_PER_MODEL)
+            if attempt < ATTEMPTS_PER_MODEL - 1:
+                time.sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
+    raise GeminiUnavailable(last)
 
 
 def _http_error_detail(exc) -> str:
@@ -376,8 +415,8 @@ def format_reply(product: Product, specs: List[Spec], sources: List[Source], ori
     return "\n".join(lines)[:3900]
 
 
-def _escalate(reason: str, product: Optional[Product] = None) -> Outcome:
-    return Outcome("escalate", reason=reason, product=product)
+def _escalate(reason: str, product: Optional[Product] = None, technical: bool = False) -> Outcome:
+    return Outcome("escalate", reason=reason, product=product, technical=technical)
 
 
 def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/jpeg", api_key: str = "", has_image: bool = None) -> Outcome:
@@ -406,9 +445,9 @@ def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/
         product = _text_hint(text)
         if product is None:
             if has_image:
-                return _escalate(f"تعذر التعرف على المنتج من الصورة: {failure or 'لا توجد صورة قابلة للتحميل'}")
+                return _escalate(f"تعذر التعرف على المنتج من الصورة: {failure or 'لا توجد صورة قابلة للتحميل'}", technical=True)
             if failure and api_key:
-                return _escalate(failure)
+                return _escalate(failure, technical=True)
             return Outcome("not_product", reason=failure)
 
     if not product.is_product:
@@ -431,7 +470,7 @@ def search_product(text: str, image: Optional[bytes] = None, mime: str = "image/
         exact, specs, sources = search_web(product, api_key)
     except GeminiUnavailable as exc:
         logger.warning("Web search failed: %s", exc)
-        return _escalate(f"فشل البحث في الإنترنت ({exc})", product)
+        return _escalate(f"فشل البحث في الإنترنت ({exc})", product, technical=True)
 
     confirmed = [s for s in specs if s.confirmed]
     if not exact or not sources or not confirmed:
