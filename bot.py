@@ -322,6 +322,7 @@ async def _answer_product(update, context, text, ref) -> bool:
         await _safe_reply(message, outcome.text)
         return True
     # escalate: tell the member only what is true
+    logger.warning("Product question escalated: %s", outcome.reason)
     notified = await _notify_admin(context, message, chat, text, "منتج: " + outcome.reason)
     if notified:
         reply = (
@@ -334,6 +335,8 @@ async def _answer_product(update, context, text, ref) -> bool:
             "ما لقيتش معلومات مؤكدة وموثوقة على هذا المنتج، وما قدرتش نوصل السؤال للمشرفين تلقائيا. "
             "ممكن تنادي المشرفين مباشرة هنا في المجموعة."
         )
+    if os.getenv("PRODUCT_DEBUG", "").strip() == "1":  # temporary diagnostics, off by default
+        reply += f"\n\n[debug: {outcome.reason}]"
     await _safe_reply(message, reply + CHANNEL_FOOTER)
     return True
 

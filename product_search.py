@@ -161,9 +161,28 @@ def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403, 429):
             _PAUSED_UNTIL = time.time() + 600
-        raise GeminiUnavailable(f"http {exc.code}") from None
+        raise GeminiUnavailable(f"http {exc.code}: {_http_error_detail(exc)}") from None
     except Exception as exc:  # network, timeout, malformed JSON ...
         raise GeminiUnavailable(type(exc).__name__) from None
+
+
+def _http_error_detail(exc) -> str:
+    """Short Google error message (e.g. 'API key not valid'), for the logs. Never includes our key."""
+    try:
+        body = json.loads(exc.read().decode("utf-8", "replace"))
+        return re.sub(r"\s+", " ", str(body["error"]["message"]))[:160]
+    except Exception:
+        return "no detail"
+
+
+def _gen_config(max_tokens: int, **extra) -> dict:
+    """Generation settings. gemini-2.5-flash spends output tokens on hidden 'thinking' first, which can
+    leave an empty or cut-off answer; thinking is switched off for it (this extraction needs none)."""
+    cfg = {"temperature": 0, "maxOutputTokens": max_tokens}
+    if "2.5-flash" in MODEL and "lite" not in MODEL:
+        cfg["thinkingConfig"] = {"thinkingBudget": 0}
+    cfg.update(extra)
+    return cfg
 
 
 def _answer_text(data: dict) -> str:
@@ -222,7 +241,7 @@ def identify(text: str, image: Optional[bytes], mime: str, api_key: str) -> Prod
     data = _post_gemini(
         {
             "contents": [{"parts": parts}],
-            "generationConfig": {"temperature": 0, "maxOutputTokens": 400, "responseMimeType": "application/json"},
+            "generationConfig": _gen_config(1024, responseMimeType="application/json"),
         },
         api_key,
     )
@@ -323,7 +342,7 @@ def search_web(product: Product, api_key: str):
         {
             "contents": [{"parts": [{"text": prompt}]}],
             "tools": [{"google_search": {}}],
-            "generationConfig": {"temperature": 0, "maxOutputTokens": 900},
+            "generationConfig": _gen_config(2048),
         },
         api_key,
     )
