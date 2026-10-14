@@ -60,7 +60,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mayna-assistant")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "").strip() or product_search.DEFAULT_MODEL  # empty value (unset Actions variable) -> default
 
 INTRO_TEXTS = {
     "registration": "مرحبا بيك في Mayna. هذا شرح التسجيل وكيفاش تبدا:",
@@ -323,7 +323,7 @@ async def _answer_product(update, context, text, ref) -> bool:
     )
     if outcome.kind == "not_product":
         return False
-    if outcome.kind in ("answer", "ask_model"):
+    if outcome.kind in ("answer", "partial", "ask_model"):
         await _safe_reply(message, outcome.text)
         return True
     # escalate: tell the member only what is true
@@ -632,8 +632,9 @@ def main() -> None:
         )
 
     logger.info(
-        "Config: GEMINI_API_KEY=%s ADMIN_CHAT_ID=%s GROUP_CHAT_ID=%s",
+        "Config: GEMINI_API_KEY=%s GEMINI_MODEL=%s PRODUCT_GEMINI_MODEL=%s fallbacks=%s ADMIN_CHAT_ID=%s GROUP_CHAT_ID=%s",
         "set" if GEMINI_API_KEY else "missing",
+        GEMINI_MODEL, product_search.MODEL, ",".join(product_search.FALLBACK_MODELS) or "-",
         "set" if os.getenv("ADMIN_CHAT_ID", "").strip() else "missing",
         "set" if os.getenv("GROUP_CHAT_ID", "").strip() else "missing",
     )
