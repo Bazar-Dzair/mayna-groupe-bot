@@ -141,14 +141,14 @@ def _text_hint(text: str) -> Optional[Product]:
 # ---------------------------------------------------------------------------
 
 _PAUSED_UNTIL = 0.0
-FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash,gemini-2.5-flash").split(",") if m.strip()]
+FALLBACK_MODELS = [m.strip() for m in os.getenv("PRODUCT_GEMINI_FALLBACKS", "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite").split(",") if m.strip()]
 RETRY_CODES = (500, 502, 503, 504)  # temporary Google-side errors: worth retrying
 MODEL_GONE_CODES = (400, 404)       # this model id is unusable for this key: try the next model
 ATTEMPTS_PER_MODEL = 3
 BACKOFF_SECONDS = (1.5, 4.0)
-DEADLINE_SECONDS = 120  # total time budget for one logical call (all retries and fallbacks)
+DEADLINE_SECONDS = 150  # total time budget for one logical call (all retries and fallbacks)
 REQUEST_TIMEOUT = 45
-IDENTIFY_TIMEOUT = 30   # photo/text identification: a healthy call answers in ~5-15 s
+IDENTIFY_TIMEOUT = 40   # photo/text identification: a healthy call answers in ~5-15 s
 SEARCH_TIMEOUT = 60     # Google Search grounding is legitimately slower
 
 
