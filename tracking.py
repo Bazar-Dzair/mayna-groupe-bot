@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import re
+import subprocess
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -118,7 +120,39 @@ def _fetch_raw(number: str) -> str:
 
 
 
+_INSTALL_TRIED = False
+
+
+def _install_browser() -> None:
+    """One-time self-install of Chromium when the workflow did not install it."""
+    global _INSTALL_TRIED
+    if _INSTALL_TRIED:
+        return
+    _INSTALL_TRIED = True
+    for cmd in ([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"],
+                [sys.executable, "-m", "playwright", "install", "chromium"]):
+        try:
+            logger.info("Installing Chromium for tracking: %s", " ".join(cmd[2:]))
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=420)
+            if done.returncode == 0:
+                logger.info("Chromium installed.")
+                return
+            logger.warning("Chromium install failed (code %s): %s", done.returncode, (done.stderr or "")[-300:])
+        except Exception as exc:
+            logger.warning("Chromium install error: %s", type(exc).__name__)
+
+
 def _fetch_with_browser(number: str) -> str:
+    try:
+        return _browse(number)
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            _install_browser()
+            return _browse(number)
+        raise
+
+
+def _browse(number: str) -> str:
     """Fallback: open the page in headless Chromium, type the number, return JSON seen on the wire or page text.
     Needs `pip install playwright` + `playwright install --with-deps chromium`. Raises if unavailable."""
     from playwright.sync_api import sync_playwright  # imported lazily: optional dependency
