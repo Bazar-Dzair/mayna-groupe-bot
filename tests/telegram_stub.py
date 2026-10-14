@@ -43,6 +43,9 @@ def install() -> bool:
         def __repr__(self):
             return self.name
 
+    class ApplicationHandlerStop(Exception):
+        pass
+
     class _NS:
         pass
 
@@ -68,7 +71,8 @@ def install() -> bool:
         def __init__(self):
             self.handlers, self.error_handlers, self.polling = [], [], None
 
-        def add_handler(self, h):
+        def add_handler(self, h, group=0):
+            h.group = group
             self.handlers.append(h)
 
         def add_error_handler(self, h):
@@ -103,6 +107,7 @@ def install() -> bool:
     ext.Application, ext.ContextTypes, ext.MessageHandler, ext.filters = (
         Application, ContextTypes, MessageHandler, filters,
     )
+    ext.ApplicationHandlerStop = ApplicationHandlerStop
     tg.error, tg.ext = err, ext
     sys.modules.update({"telegram": tg, "telegram.error": err, "telegram.ext": ext})
     return True
