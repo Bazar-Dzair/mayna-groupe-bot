@@ -19,6 +19,7 @@ from telegram.ext import (
 import delivery
 import matcher
 import product_search
+import tracking
 from matcher import classify, extract_wilaya, normalize
 
 # All links below refer to posts in the Mayna private channel.
@@ -466,6 +467,20 @@ async def handle_group_message(
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
         return
+
+    # -1) Tracking numbers (e.g. DHDCQI726101420522909): look the parcel up on the DHD tracking site.
+    numbers = tracking.find_tracking_numbers(text)
+    if numbers:
+        try:
+            results = [await asyncio.to_thread(tracking.lookup, n) for n in numbers]
+            sent = await _safe_reply(message, tracking.build_reply(results))
+            logger.info(
+                "Tracking lookup: numbers=%s ok=%s errors=%s sent=%s message_id=%s",
+                ",".join(numbers), [r.ok for r in results], [r.error or "-" for r in results], sent, message.message_id,
+            )
+            return
+        except Exception:  # never let a bug here silence the bot
+            logger.exception("Tracking lookup crashed; falling back to the generic flow")
 
     # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
     try:
