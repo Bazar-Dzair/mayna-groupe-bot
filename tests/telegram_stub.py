@@ -24,6 +24,9 @@ def install() -> bool:
     class TelegramError(Exception):
         pass
 
+    class Conflict(TelegramError):
+        pass
+
     class _F:
         def __init__(self, name):
             self.name = name
@@ -94,6 +97,7 @@ def install() -> bool:
 
     tg.Update = Update
     err.TelegramError = TelegramError
+    err.Conflict = Conflict
     ext.Application, ext.ContextTypes, ext.MessageHandler, ext.filters = (
         Application, ContextTypes, MessageHandler, filters,
     )

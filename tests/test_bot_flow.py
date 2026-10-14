@@ -91,7 +91,6 @@ class TestPlainMessageReachesSearchHandler(FlowBase):
     async def test_each_main_topic_sends_expected_post(self):
         expected = {
             "وقتاش نخلصو؟": 425,
-            "شحال التوصيل لوهران؟": 399,
             "مدة التوصيل": 436,
             "كيفاش نفتح حساب؟": 334,
             "وقتاش تتأكد الكوموند؟": 398,
@@ -108,12 +107,16 @@ class TestPlainMessageReachesSearchHandler(FlowBase):
         await bot.handle_group_message(update, ctx)
         self.assertEqual([c[2]["message_id"] for c in self.copies(ev)], [216, 412])
 
-    async def test_wilaya_is_mentioned_but_no_price_invented(self):
+    async def test_price_question_gets_the_wilaya_price_from_the_table(self):
+        # Behavior changed on purpose: a price question is answered with the table price
+        # (it used to copy channel post 399 without any price).
         update, ctx, ev = make_update("شحال التوصيل لوهران؟")
         await bot.handle_group_message(update, ctx)
-        intro = ev[0][1]
-        self.assertIn("وهران", intro)
-        self.assertNotRegex(intro, r"\d{3,}")  # no invented price/duration number
+        reply = ev[0][1]
+        self.assertIn("وهران", reply)
+        self.assertIn("600 دج", reply)
+        self.assertIn("350 دج", reply)
+        self.assertEqual(self.copies(ev), [])
 
     async def test_caption_of_photo_is_searched(self):
         update, ctx, ev = make_update("", photo=True, caption="كيفاش نتبع الكوموند")
