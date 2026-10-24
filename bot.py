@@ -451,10 +451,11 @@ async def handle_group_message(
         logger.info("Ignoring chat_id=%s (GROUP_CHAT_ID=%s, RESTRICT_TO_GROUP=1)", chat.id, group_id)
         return
 
-    # The bot never talks to (or answers) the admin, and stays out of conversations the admin is handling.
-    if await moderation.is_admin(context, chat, message):
+    # The bot never answers @MaynaDz (only him). Everyone else gets answers (greetings, prices, how to register...).
+    if moderation.is_main_admin(message):
         return
-    if await moderation.reply_is_to_admin(context, chat, message):
+    # Optional: set IGNORE_REPLIES_TO_ADMIN=1 to also stay silent on messages replying to @MaynaDz.
+    if os.getenv("IGNORE_REPLIES_TO_ADMIN", "").strip() == "1" and await moderation.reply_is_to_admin(context, chat, message):
         return
 
     text = message.text or message.caption or ""

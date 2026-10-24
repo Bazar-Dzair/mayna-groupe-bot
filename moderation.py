@@ -114,9 +114,21 @@ async def is_admin(context, chat, message) -> bool:
         return user.id in (cached[1] if cached else set())
 
 
+def is_main_admin(message) -> bool:
+    """True only for @MaynaDz himself (the account, or him posting anonymously as the group / via the
+    linked channel). Other group administrators are NOT included: the bot answers them like any member."""
+    sender_chat = getattr(message, "sender_chat", None)
+    chat = getattr(message, "chat", None)
+    if sender_chat is not None and chat is not None and getattr(sender_chat, "id", None) == getattr(chat, "id", None):
+        return True
+    if getattr(message, "is_automatic_forward", False):
+        return True
+    return is_admin_username(getattr(message, "from_user", None))
+
+
 async def reply_is_to_admin(context, chat, message) -> bool:
-    """True if this message answers one of the admin's messages (the admin is already handling it)."""
+    """True if this message answers one of @MaynaDz's messages (he is already handling it)."""
     target = getattr(message, "reply_to_message", None)
     if target is None:
         return False
-    return await is_admin(context, chat, target)
+    return is_main_admin(target)
