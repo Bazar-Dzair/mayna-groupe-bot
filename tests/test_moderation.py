@@ -181,20 +181,28 @@ class TestBotSilentForAdmin(unittest.IsolatedAsyncioTestCase):
         m.reply_text.assert_not_awaited()
         c.bot.send_message.assert_not_awaited()
 
-    async def test_group_admin_question_gets_no_answer(self):
+    async def test_other_group_admin_still_gets_answer(self):
+        # only @MaynaDz is ignored; other group admins are answered like members
         m = msg("كيفاش نسجل في مينا؟", user="other", user_id=42)
-        await self.ask(m, ctx(admin_ids=[42]))
-        m.reply_text.assert_not_awaited()
+        c = await self.ask(m, ctx(admin_ids=[42]))
+        self.assertTrue(m.reply_text.await_count > 0 or c.bot.copy_message.await_count > 0)
 
     async def test_member_still_gets_answer(self):
         m = msg("كيفاش نسجل في مينا؟")
         c = await self.ask(m)
         self.assertTrue(m.reply_text.await_count > 0 or c.bot.copy_message.await_count > 0)
 
-    async def test_reply_to_admin_message_is_left_to_admin(self):
+    async def test_reply_to_admin_message_is_answered_by_default(self):
         admin_msg = msg("جاوبتك", user="MaynaDz", user_id=1)
         m = msg("كيفاش نسجل في مينا؟", reply_to_message=admin_msg)
         c = await self.ask(m)
+        self.assertTrue(m.reply_text.await_count > 0 or c.bot.copy_message.await_count > 0)
+
+    async def test_reply_to_admin_ignored_when_flag_set(self):
+        admin_msg = msg("جاوبتك", user="MaynaDz", user_id=1)
+        m = msg("كيفاش نسجل في مينا؟", reply_to_message=admin_msg)
+        with mock.patch.dict(os.environ, {"IGNORE_REPLIES_TO_ADMIN": "1"}):
+            c = await self.ask(m)
         m.reply_text.assert_not_awaited()
         c.bot.send_message.assert_not_awaited()
 
