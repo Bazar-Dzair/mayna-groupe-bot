@@ -451,7 +451,11 @@ async def handle_group_message(
 ) -> None:
     message = update.effective_message
     chat = update.effective_chat
-    if not message or not chat or chat.type not in ("group", "supergroup"):
+    if not message or not chat or chat.type not in ("group", "supergroup", "private"):
+        return
+    # Private chat = test mode: only @MaynaDz can talk to the bot there (nobody else is answered).
+    private_test = chat.type == "private"
+    if private_test and not moderation.is_main_admin(message):
         return
 
     if message.from_user and message.from_user.is_bot:
@@ -466,7 +470,7 @@ async def handle_group_message(
         return
 
     # The bot never answers @MaynaDz (only him). Everyone else gets answers (greetings, prices, how to register...).
-    if moderation.is_main_admin(message):
+    if moderation.is_main_admin(message) and not private_test:
         return
     # Optional: set IGNORE_REPLIES_TO_ADMIN=1 to also stay silent on messages replying to @MaynaDz.
     if os.getenv("IGNORE_REPLIES_TO_ADMIN", "").strip() == "1" and await moderation.reply_is_to_admin(context, chat, message):
@@ -708,7 +712,7 @@ def build_application(token: str) -> Application:
     )
     app.add_handler(
         MessageHandler(
-            filters.ChatType.GROUPS
+            (filters.ChatType.GROUPS | filters.ChatType.PRIVATE)
             & ~filters.StatusUpdate.ALL
             & ~filters.COMMAND
             & (filters.TEXT | filters.CAPTION | filters.PHOTO | filters.Document.ALL),
