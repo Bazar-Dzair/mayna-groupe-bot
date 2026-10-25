@@ -117,11 +117,14 @@ async def is_admin(context, chat, message) -> bool:
 def is_main_admin(message) -> bool:
     """True only for @MaynaDz himself (the account, or him posting anonymously as the group / via the
     linked channel). Other group administrators are NOT included: the bot answers them like any member."""
+    if getattr(message, "is_automatic_forward", False):
+        return True  # the channel's own post mirrored into the group
+    # Anonymous admins (sender_chat == the group) cannot be told apart: any admin, marketers included, may
+    # post that way. They are answered unless IGNORE_ANONYMOUS_ADMIN=1.
     sender_chat = getattr(message, "sender_chat", None)
     chat = getattr(message, "chat", None)
-    if sender_chat is not None and chat is not None and getattr(sender_chat, "id", None) == getattr(chat, "id", None):
-        return True
-    if getattr(message, "is_automatic_forward", False):
+    if (os.getenv("IGNORE_ANONYMOUS_ADMIN", "").strip() == "1" and sender_chat is not None
+            and chat is not None and getattr(sender_chat, "id", None) == getattr(chat, "id", None)):
         return True
     return is_admin_username(getattr(message, "from_user", None))
 
