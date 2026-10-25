@@ -206,6 +206,19 @@ class TestBotSilentForAdmin(unittest.IsolatedAsyncioTestCase):
         m.reply_text.assert_not_awaited()
         c.bot.send_message.assert_not_awaited()
 
+    async def test_admin_private_chat_is_test_mode_and_gets_answer(self):
+        m = msg("السلام عليكم", user="MaynaDz", user_id=1)
+        priv = NS(id=1, type="private", title=None, username="MaynaDz")
+        c = ctx()
+        await bot.handle_group_message(NS(effective_message=m, effective_chat=priv), c)
+        self.assertTrue(m.reply_text.await_count > 0)
+
+    async def test_private_chat_of_other_people_is_ignored(self):
+        m = msg("السلام عليكم", user="ali", user_id=77)
+        priv = NS(id=77, type="private", title=None, username="ali")
+        await bot.handle_group_message(NS(effective_message=m, effective_chat=priv), ctx())
+        m.reply_text.assert_not_awaited()
+
     async def test_unclear_question_points_to_admin(self):
         m = msg("blabla qsdqsd xyzxyz؟")
         c = await self.ask(m)
