@@ -133,6 +133,20 @@ def is_greeting(text: str) -> bool:
     return matcher.is_greeting(text)
 
 
+THANKS_REPLIES = (
+    "العفو، هذا واجبنا 🌟 ربي يوفقك ويفتح عليك أبواب الرزق، ونتمنى لك ولجميع مسوقي Mayna "
+    "النجاح والتوفيق. وإذا عندك أي سؤال آخر نحن في الخدمة.",
+    "بارك الله فيك، الشرف لنا 🤝 نتمنى لك التوفيق والنجاح في مشوارك مع Mayna، ولكل المسوقين "
+    "أرباح وفيرة بإذن الله. نحن دائما في الخدمة.",
+    "العفو أخي، وربي يحفظك 🌹 نسأل الله لك ولجميع الإخوة المسوقين التوفيق والنجاح وبركة في الرزق. "
+    "إذا احتجت أي مساعدة اكتب سؤالك.",
+)
+
+
+def is_thanks(text: str) -> bool:
+    return matcher.is_thanks(text)
+
+
 def match_tutorial(text: str):
     """Return (tutorial key, intro text) for a confidently recognized question, else None."""
     result = classify(text)
@@ -479,6 +493,11 @@ async def handle_group_message(
         await message.reply_text(GREETING_REPLY + CHANNEL_FOOTER)
         return
 
+    if text and is_thanks(text):
+        reply = THANKS_REPLIES[message.message_id % len(THANKS_REPLIES)]
+        await message.reply_text(reply)
+        return
+
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
         return
@@ -489,6 +508,11 @@ async def handle_group_message(
     except Exception:  # never let a bug here silence the bot
         logger.exception("Delivery engine crashed; falling back to the generic flow")
         price = None
+    if price is not None and price.handled and price.kind in ("ask_wilaya", "table"):
+        # No wilaya named: send the full 58-wilaya price post (post 399) instead of asking.
+        logger.info("Delivery prices without wilaya: sending post %s message_id=%s", VIDEOS["delivery_prices_58_wilayas"], message.message_id)
+        await _answer_topic(update, context, "delivery_prices_58_wilayas")
+        return
     if price is not None and price.handled:
         sent = await _safe_reply(message, price.text)
         logger.info(

@@ -292,6 +292,30 @@ def is_greeting(text: str) -> bool:
     return all(w in _GREET_WORDS or (w.startswith('و') and w[1:] in _GREET_WORDS) for w in words)
 
 
+_THANKS_RX = re.compile(
+    r"(?<!\w)(?:شكر\w*|مشكور\w*|بارك\w*|جزاك\w*|جزاكم\w*|جازاك\w*|"
+    r"ربي (?:يحفظ|يخلي|يجازي|يوفق|يكثر|يبارك|يسلم|يعطي|يحفضك|يبارك)\w*|الله (?:يحفظ|يخلي|يجازي|يوفق|يبارك|يسلم|يعطي)\w*|"
+    r"يعطيك\w*|يعطيكم\w*|تسلم\w*|يسلمو\w*|يسلم\w*|يحفضك\w*|يحفظك\w*|"
+    r"merci\w*|thanks?|thx|thank|tanemmirt|barakallah\w*|baraka\w*|jazak\w*)(?!\w)"
+)
+# a thanks message with a real question inside must still be answered as a question
+_QUESTION_RX = re.compile(
+    r"(?<!\w)(?:كيفاش|كيف|كيفاه|واش|شحال|علاش|وقتاش|امتي|وين|فين|شكون|اي|quel\w*|comment|combien|pourquoi|quand|ou|est ce)(?!\w)"
+)
+
+
+def is_thanks(text: str) -> bool:
+    """True for a thank-you / blessing message (any dialect) that contains no question."""
+    if "؟" in (text or "") or "?" in (text or ""):
+        return False
+    norm = normalize(text)
+    if not norm or len(norm.split()) > 18:
+        return False
+    if _QUESTION_RX.search(norm):
+        return False
+    return bool(_THANKS_RX.search(norm))
+
+
 @dataclass
 class MatchResult:
     status: str  # "match" | "ambiguous" | "none"

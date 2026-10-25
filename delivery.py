@@ -334,7 +334,7 @@ def answer(text: str) -> DeliveryAnswer:
     return DeliveryAnswer(
         True,
         "wilaya_found",
-        body + FOOTER,
+        body,
         "wilaya",
         [BY_NUMBER[n].name for n, _, _ in chosen],
         show,
