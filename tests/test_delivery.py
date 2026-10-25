@@ -157,9 +157,7 @@ class TestEngine(unittest.TestCase):
             text,
             "أسعار التوصيل إلى وهران حسب جدول Mayna:\n"
             "- التوصيل للبيت: 600 دج\n"
-            "- مكتب التوصيل: 350 دج\n\n"
-            "للاطلاع على شروحات ومعلومات أخرى، ادخل لقناة Mayna:\n"
-            "https://t.me/+wyKej2q0oK0zYjI0",
+            "- مكتب التوصيل: 350 دج",
         )
 
 
@@ -215,14 +213,13 @@ class TestGroupHandlerFullPath(FlowBase):
     async def test_general_question_sends_whole_table(self):
         update, ctx, ev = make_update("أسعار التوصيل للولايات")
         await bot.handle_group_message(update, ctx)
-        text = self._replies(ev)[0]
-        self.assertIn("وهران: بيت 600 | مكتب 350", text)
-        self.assertIn("تمنراست: بيت 1500 | مكتب 700", text)
+        # no wilaya named -> the whole 58-wilaya price post (post 399) is copied
+        self.assertEqual([e[2]["message_id"] for e in ev if e[0] == "copy"], [399])
 
     async def test_missing_wilaya_asks_the_member(self):
         update, ctx, ev = make_update("نحب نعرف سعر التوصيل")
         await bot.handle_group_message(update, ctx)
-        self.assertIn("واش هي الولاية تاعك؟", self._replies(ev)[0])
+        self.assertEqual([e[2]["message_id"] for e in ev if e[0] == "copy"], [399])
 
     async def test_unconfirmed_wilaya_is_not_answered_with_9999(self):
         update, ctx, ev = make_update("سعر التوصيل لجانت")

@@ -258,7 +258,7 @@ class TestExistingFeaturesKeepPriority(ProductBase):
         self.assertIn("وعليكم السلام", self.replies(ev)[0])
 
     async def test_non_product_photo_falls_through_to_admin_as_before(self):
-        update, ctx, ev = make_update("", photo=True, caption="شكرا بزاف")
+        update, ctx, ev = make_update("", photo=True, caption="صورة بدون سؤال واضح قدام")
         attach_photo(update, ctx)
         calls = []
         with mock.patch.object(ps, "_post_gemini", fake_gemini(dict(IDENT_OK, is_product=False), WEB_OK, calls=calls)):
@@ -266,6 +266,14 @@ class TestExistingFeaturesKeepPriority(ProductBase):
         self.assertEqual(calls, ["identify"])
         self.assertTrue(self.admin_events(ev))
         self.assertIn("وصلنا السؤال للمشرفين", self.replies(ev)[-1])
+
+    async def test_thanks_with_photo_gets_polite_reply_not_admin(self):
+        update, ctx, ev = make_update("", photo=True, caption="شكرا بزاف")
+        attach_photo(update, ctx)
+        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, WEB_OK)):
+            await bot.handle_group_message(update, ctx)
+        self.assertFalse(self.admin_events(ev))
+        self.assertIn("التوفيق", self.replies(ev)[0])
 
     async def test_plain_unrelated_text_never_calls_gemini_vision_flow(self):
         update, ctx, ev = make_update("كيفاش نفتح حساب؟")

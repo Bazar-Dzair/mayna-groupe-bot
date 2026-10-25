@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from matcher import classify, extract_wilaya, is_greeting, normalize  # noqa: E402
+from matcher import classify, extract_wilaya, is_greeting, is_thanks, normalize  # noqa: E402
 from tests.blind import BLIND  # noqa: E402
 from tests.cases import CASES, UNCLEAR  # noqa: E402
 from tests.heldout import HELDOUT, TRAPS  # noqa: E402
@@ -91,3 +91,15 @@ class TestNoWrongMatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThanks(unittest.TestCase):
+    def test_thanks_variants(self):
+        for t in ["شكرا", "شكرا اخي راني حتى نتعلم باش نقدر نخدم معكم", "نعم شكرا اخي", "ربي يحفظك",
+                  "بارك الله فيك", "جزاك الله خيرا", "merci beaucoup", "Thanks", "يعطيك الصحة",
+                  "مشكور خويا", "Barakallahou fik", "الله يبارك فيك", "تسلم"]:
+            self.assertTrue(is_thanks(t), t)
+
+    def test_not_thanks(self):
+        for t in ["شكرا بصح كيفاش نسجل", "شكرا واش التوصيل", "سلام وعليكم نهاركم مبارك", "كيفاش نسجل", "شحال التوصيل لوهران؟"]:
+            self.assertFalse(is_thanks(t), t)
