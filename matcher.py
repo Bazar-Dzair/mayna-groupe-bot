@@ -203,6 +203,9 @@ RULES = {
         (r"(?:راني|انا|je suis)\W+(?:جديد\w*|nouveau|nouvelle)", 7),
         (r"(?:كيفاش|كيف|كيفاه|comment)\W+(?:\w+\W+){0,2}(?:نبدا|نخدم)\W+(?:\w+\W+){0,2}(?:ماينا|mayna|تسويق|marketing)", 8),
         (r"(?:s inscrire|inscription)\W+(?:\w+\W+){0,3}(?:mayna|ماينا)", 3),
+        # bare questions in the marketers' group: "كيفاش نسجل" / "كيفاش نبدا" mean registration
+        (rf"(?:كيفاش|كيف|كيفاه|kifach|kifah)\W+(?:نسجل|نسجلو)(?!\W+(?:{ORDER}))", 9),
+        (r"(?:كيفاش|كيف|كيفاه|kifach|kifah)\W+(?:نبدا|نبدو)\W*$", 8),
     ],
     "order_confirmation_times": [
         (rf"(?:تاكيد|تتاكد|تتأكد|يتاكد|نتاكد|يتم تاكيد|confirm\w*)\W+(?:\w+\W+){{0,3}}(?:{ORDER}|{ORDER}\w*)", 8),
