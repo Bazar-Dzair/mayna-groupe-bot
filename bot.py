@@ -20,6 +20,7 @@ from telegram.ext import (
 import delivery
 import matcher
 import moderation
+import policies
 import product_search
 from matcher import classify, extract_wilaya, normalize
 
@@ -504,6 +505,21 @@ async def handle_group_message(
 
     if not text:
         # A product photo without any question: nothing to answer, do not spam the group.
+        return
+
+    # 0a) Fixed company policies: "customer wants to come to the shop" (online only) and
+    # wholesale / bulk orders (minimum 3, batches, half paid in advance). See policies.py.
+    try:
+        policy = policies.detect(text)
+    except Exception:  # never let a bug here silence the bot
+        logger.exception("Policy engine crashed; falling back to the generic flow")
+        policy = None
+    if policy is not None and policy.handled:
+        sent = await _safe_reply(message, policy.text)
+        logger.info(
+            "Policy answer: kind=%s reason=%s sent=%s message_id=%s",
+            policy.kind, policy.reason, sent, message.message_id,
+        )
         return
 
     # 0) Delivery prices: answered from the local table, before any other topic can claim the question.
