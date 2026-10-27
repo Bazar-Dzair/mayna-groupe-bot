@@ -33,7 +33,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Syntax check
-        run: python -m py_compile bot.py matcher.py delivery.py product_search.py
+        run: python -m py_compile bot.py matcher.py delivery.py product_search.py policies.py
 
       - name: Run tests (no Telegram or Gemini access needed)
         continue-on-error: true  # a failing test is shown in red but never keeps the bot from starting
