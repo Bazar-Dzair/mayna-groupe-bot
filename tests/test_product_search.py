@@ -122,7 +122,7 @@ class TestPhotoWithQuestion(ProductBase):
         with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, WEB_OK)):
             await bot.handle_group_message(update, ctx)
         self.assertTrue(self.admin_events(ev))
-        self.assertIn("للمشرفين", self.replies(ev)[-1])
+        self.assertEqual(self.replies(ev), [])  # silent in the group, admin informed privately
 
 
 class TestPhotoWithoutQuestion(ProductBase):
@@ -164,7 +164,7 @@ class TestFailures(ProductBase):
         admin = self.admin_events(ev)
         self.assertEqual([a[0] for a in admin], ["send", "copy"])  # text + the photo itself
         self.assertIn("شحال قوة هذا الجهاز", admin[0][2]["text"])
-        self.assertIn("تحقق", self.replies(ev)[-1])
+        self.assertEqual(self.replies(ev), [])  # silent in the group, admin informed privately
 
     async def test_search_failure_goes_to_admin(self):
         update, ctx, ev = make_update("", photo=True, caption="شحال قوة هذا الجهاز؟")
@@ -181,7 +181,7 @@ class TestFailures(ProductBase):
         ctx.bot.send_message = AsyncMock(side_effect=bot.TelegramError("chat not found"))
         with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, web_exc=ps.GeminiUnavailable("Timeout"))):
             await bot.handle_group_message(update, ctx)
-        self.assertIn("ما قدرتش نوصل السؤال للمشرفين", self.replies(ev)[-1])
+        self.assertEqual(self.replies(ev), [])  # never talks in the group when it has no reliable answer
 
     async def test_no_gemini_key_photo_goes_to_admin(self):
         update, ctx, ev = make_update("", photo=True, caption="شحال قوة هذا الجهاز؟")
@@ -257,23 +257,14 @@ class TestExistingFeaturesKeepPriority(ProductBase):
             await bot.handle_group_message(update, ctx)
         self.assertIn("وعليكم السلام", self.replies(ev)[0])
 
-    async def test_non_product_photo_falls_through_to_admin_as_before(self):
-        update, ctx, ev = make_update("", photo=True, caption="صورة بدون سؤال واضح قدام")
+    async def test_non_product_photo_gets_no_reply(self):
+        update, ctx, ev = make_update("", photo=True, caption="شكرا بزاف")
         attach_photo(update, ctx)
         calls = []
         with mock.patch.object(ps, "_post_gemini", fake_gemini(dict(IDENT_OK, is_product=False), WEB_OK, calls=calls)):
             await bot.handle_group_message(update, ctx)
         self.assertEqual(calls, ["identify"])
-        self.assertTrue(self.admin_events(ev))
-        self.assertIn("وصلنا السؤال للمشرفين", self.replies(ev)[-1])
-
-    async def test_thanks_with_photo_gets_polite_reply_not_admin(self):
-        update, ctx, ev = make_update("", photo=True, caption="شكرا بزاف")
-        attach_photo(update, ctx)
-        with mock.patch.object(ps, "_post_gemini", fake_gemini(IDENT_OK, WEB_OK)):
-            await bot.handle_group_message(update, ctx)
-        self.assertFalse(self.admin_events(ev))
-        self.assertIn("التوفيق", self.replies(ev)[0])
+        self.assertEqual(self.replies(ev), [])
 
     async def test_plain_unrelated_text_never_calls_gemini_vision_flow(self):
         update, ctx, ev = make_update("كيفاش نفتح حساب؟")
