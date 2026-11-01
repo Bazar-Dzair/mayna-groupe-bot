@@ -29,7 +29,15 @@ from typing import List, Optional
 logger = logging.getLogger("mayna-assistant.product")
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models/"
-MODEL = os.getenv("PRODUCT_GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
+# Google retires models and hides old ones from new API keys (HTTP 404). So we try a list, newest first,
+# and remember the first model that works. PRODUCT_GEMINI_MODEL / GEMINI_MODEL (if set) is tried first.
+_MODEL_CHAIN = tuple(dict.fromkeys(m for m in (
+    os.getenv("PRODUCT_GEMINI_MODEL", "").strip(),
+    os.getenv("GEMINI_MODEL", "").strip(),
+    "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash",
+) if m))
+MODEL = _MODEL_CHAIN[0]
+_WORKING_MODEL = None
 CATALOG_FILE = os.getenv("PRODUCT_CATALOG_FILE", "").strip() or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "products_catalog.json"
 )
@@ -159,27 +167,40 @@ _PAUSED_UNTIL = 0.0
 
 
 def _post_gemini(payload: dict, api_key: str, model: str = None, timeout: int = 40) -> dict:
-    """POST to generateContent. The key travels in a header, never in the URL or the logs."""
-    global _PAUSED_UNTIL
+    """POST to generateContent. The key travels in a header, never in the URL or the logs.
+    On HTTP 404 (model retired / not available to this key) the next model of the chain is tried."""
+    global _PAUSED_UNTIL, _WORKING_MODEL
     if not api_key:
         raise GeminiUnavailable("no key")
     if time.time() < _PAUSED_UNTIL:
         raise GeminiUnavailable("paused after quota/auth error")
-    request = urllib.request.Request(
-        f"{API_ROOT}{model or MODEL}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403, 429):
-            _PAUSED_UNTIL = time.time() + 600
-        raise GeminiUnavailable(f"http {exc.code}") from None
-    except Exception as exc:  # network, timeout, malformed JSON ...
-        raise GeminiUnavailable(type(exc).__name__) from None
+    models = [model] if model else ([_WORKING_MODEL] if _WORKING_MODEL else list(_MODEL_CHAIN))
+    for name in models:
+        request = urllib.request.Request(
+            f"{API_ROOT}{name}:generateContent",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            if not model and _WORKING_MODEL != name:
+                _WORKING_MODEL = name
+                logger.info("Gemini model in use: %s", name)
+            return result
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404 and name != models[-1]:
+                logger.warning("Gemini model %s not available (404); trying the next one", name)
+                continue
+            if exc.code == 404 and not model:
+                _WORKING_MODEL = None  # chain exhausted: try it again from the start next time
+            if exc.code in (401, 403, 429):
+                _PAUSED_UNTIL = time.time() + 600
+            raise GeminiUnavailable(f"http {exc.code}") from None
+        except Exception as exc:  # network, timeout, malformed JSON ...
+            raise GeminiUnavailable(type(exc).__name__) from None
+    raise GeminiUnavailable("no model")
 
 
 def _answer_text(data: dict) -> str:
