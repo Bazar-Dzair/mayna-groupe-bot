@@ -30,7 +30,7 @@ MAYNA_CHANNEL_ID = -1003071373878
 CHANNEL_LINK = delivery.CHANNEL_LINK
 
 VIDEOS = {
-    "registration": 334,
+    "registration": 574,
     "new_order_commission": 335,
     "withdraw_commission": 15,
     "order_management_status": 16,
